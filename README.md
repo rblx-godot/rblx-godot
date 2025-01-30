@@ -1,7 +1,6 @@
 > [!WARNING]
 > This project is still heavily in development and as such you will see very frequent changes in the codebase and crashes from unimplemented features.
 
-
 # The Roblox To Godot Project
 
 A GDExtension written in Rust that adds [Luau](https://luau-lang.org) and creates a `RobloxVM` class for Godot to be able to run Roblox games.
@@ -13,9 +12,10 @@ A roblox runtime, written completely inside Rust leveraging the low-level API of
 
 Features
 --------
-- TODO: Implementation of a Roblox VM that runs Luau and the task scheduler as needed.
+- Implementation of a Roblox VM that runs Luau and the task scheduler as needed.
 - TODO: Implementation of Instances, Roblox data types
-- TODO: Implementation of Actors
+- Implementation of Actors
+- Implementation of scripts
 - TODO: Implementation of UI
 - TODO: Implementation of inputs
 - TODO: Implementation of rendering
