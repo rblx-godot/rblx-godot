@@ -1,12 +1,12 @@
 [package]
-name = "roblox-to-godot-project"
-authors = ["Radiant", "roblox-to-godot-project contributors"]
+name = "rblx-godot"
+authors = ["Radiant", "rblx-godot contributors"]
 description = "Roblox To Godot Project, allowing you to run Roblox games inside Godot"
 license = "Apache-2.0"
 readme = "README.md"
 edition = "2021"
-repository = "https://github.com/roblox-to-godot-project/roblox-to-godot-project"
-version = "0.1.0-indev"
+repository = "https://github.com/rblx-godot/rblx-godot"
+version = "0.2.0-indev"
 
 
 [features]
@@ -25,4 +25,4 @@ rustversion-detect = "0.1.3"
 
 [workspace]
 
-members = ["roblox-to-godot-project-derive"]
+members = ["rblx-godot-derive"]
