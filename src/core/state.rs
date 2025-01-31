@@ -8,7 +8,7 @@ use super::scheduler::ITaskScheduler;
 use super::ParallelDispatch::{Default, Synchronized};
 use super::{borrowck_ignore, FastFlag, FastFlags, RwLock, RwLockReadGuard, RwLockWriteGuard, TaskScheduler, Trc};
 use super::{security::ThreadIdentityType, vm::RobloxVM};
-use crate::instance::WeakManagedInstance;
+use crate::instance::{IModuleScript, ManagedInstance, WeakManagedActor, WeakManagedInstance};
 use crate::userdata::register_userdata_singletons;
 
 pub mod registry_keys {
@@ -16,6 +16,7 @@ pub mod registry_keys {
     pub const STATE_REGISTRYKEY: &'static str = "__state__";
     pub(super) const TASK_PUSH_WAIT: &'static str = "__task_push_wait__";
     pub(super) const TASK_PUSH_SYNC_DESYNC: &'static str = "__task_push_sync_desync__";
+    pub const ACTOR_REGISTRYKEY: &'static str = "__actor__";
 }
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct ThreadIdentity {
@@ -27,7 +28,8 @@ pub struct LuauState {
     vm: *mut RwLock<RobloxVM>,
     lua: Lua,
     threads: HashMap<*const c_void, ThreadIdentity>,
-    task: MaybeUninit<Box<dyn ITaskScheduler>>
+    task: MaybeUninit<Box<dyn ITaskScheduler>>,
+    actor: Option<WeakManagedActor>,
 }
 impl LuauState {
     fn get_vm_from_lua(lua: &Lua) -> &RwLock<RobloxVM> {
@@ -140,8 +142,18 @@ impl LuauState {
             self.lua.set_named_registry_value(
                 registry_keys::TASK_PUSH_SYNC_DESYNC,
                 self.lua.create_function(DynTaskScheduler::push_sync_desync).unwrap()
-            ).unwrap()
+            ).unwrap();
+
+            self.lua.globals().raw_set("wait", self.lua.create_c_function(DynTaskScheduler::wait).unwrap()).unwrap();
+            let v = self.lua.globals().raw_get::<LuaTable>("task").unwrap().raw_get::<LuaValue>("defer").unwrap();
+            self.lua.globals().raw_set("spawn", v).unwrap();
         }
+
+        self.lua.globals().raw_set("require", self.lua.create_function(|lua, script: ManagedInstance| {
+            let s = script.cast_from_unsized::<dyn IModuleScript>()
+                .map_err(|_| LuaError::RuntimeError("invalid argument #1 to 'require' (ModuleScript expected)".into()))?;
+            s.require(lua, &get_state(lua).actor)
+        }).unwrap()).unwrap();
 
     }
     unsafe fn _init(&mut self) {
@@ -169,7 +181,8 @@ impl LuauState {
             vm: ptr,
             lua: Lua::new(),
             threads: HashMap::default(),
-            task: MaybeUninit::new(Box::new(TaskScheduler::new()))
+            task: MaybeUninit::new(Box::new(TaskScheduler::new())),
+            actor: None
         };
         unsafe {state._init();}
         state
@@ -179,7 +192,8 @@ impl LuauState {
             vm: null_mut(),
             lua: Lua::new(),
             threads: HashMap::default(),
-            task: MaybeUninit::uninit()
+            task: MaybeUninit::uninit(),
+            actor: None
         }
     }
     pub fn get_vm(&self) -> RwLockReadGuard<RobloxVM> {
@@ -294,6 +308,9 @@ impl LuauState {
     #[inline(always)]
     pub(super) const fn get_vm_ptr(&self) -> *mut RwLock<RobloxVM> {
         self.vm
+    }
+    pub(crate) fn set_actor(&mut self, actor: WeakManagedActor) {
+        self.actor = Some(actor);
     }
 }
 

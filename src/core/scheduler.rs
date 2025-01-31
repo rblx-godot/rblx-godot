@@ -1,6 +1,6 @@
 use std::{ffi::c_int, mem::take, ptr::slice_from_raw_parts};
 
-use r2g_mlua::{ffi::{self, luaL_checknumber, lua_State, lua_gettop, lua_pushnumber, lua_resume, lua_settop, lua_tothread, lua_type, lua_typename, lua_xmove, lua_yield, LUA_ERRRUN}, prelude::*};
+use r2g_mlua::{ffi::{self, luaL_checknumber, lua_State, lua_gettop, lua_pushnumber, lua_remove, lua_resume, lua_settop, lua_tothread, lua_type, lua_typename, lua_xmove, lua_yield, LUA_ERRRUN}, prelude::*};
 use crate::instance::WeakManagedInstance;
 
 use super::{borrowck_ignore_mut, get_state, get_thread_identity, registry_keys, RobloxVM, RwLockWriteGuard};
@@ -177,7 +177,13 @@ impl dyn ITaskScheduler {
                     if lua_resume(thread, lua_raw, args as i32, &raw mut _nres) == LUA_ERRRUN {
                         lua_xmove(thread, lua_raw, 1);
                         if lua_gettop(lua_raw) == 0 {
-                            ffi::lua_pushstring(lua_raw, "unknown error".as_ptr() as *const i8);
+                            ffi::lua_pushstring(lua_raw, c"unknown error".as_ptr());
+                        }
+                        let e_type = lua_type(lua_raw, -1);
+                        if e_type == ffi::LUA_TUSERDATA {
+                            ffi::lua_getfield(lua_raw, -1, c"__tostring".as_ptr());
+                            ffi::lua_pushvalue(lua_raw, -2);
+                            ffi::lua_call(lua_raw, 1, 1);
                         }
                         dbg!(lua_gettop(lua_raw));
                         let typename = std::ffi::CStr::from_ptr(lua_typename(lua_raw, lua_type(lua_raw, -1)));
@@ -233,7 +239,30 @@ impl dyn ITaskScheduler {
                             let thread = lua_tothread(lua_raw, 1);
                             let mut _nres = 0;
                             lua_pushnumber(thread, Self::clock()-started);
-                            lua_resume(thread, lua_raw, 1, &raw mut _nres);
+                            if lua_resume(thread, lua_raw, 1, &raw mut _nres) == LUA_ERRRUN {
+                                lua_xmove(thread, lua_raw, 1);
+                                if lua_gettop(lua_raw) == 0 {
+                                    ffi::lua_pushstring(lua_raw, c"unknown error".as_ptr());
+                                }
+                                let e_type = lua_type(lua_raw, -1);
+                                if e_type == ffi::LUA_TUSERDATA {
+                                    ffi::lua_getmetatable(lua_raw, -1);
+                                    ffi::lua_getfield(lua_raw, -1, c"__tostring".as_ptr());
+                                    lua_remove(lua_raw, -2);
+                                    ffi::lua_pushvalue(lua_raw, -2);
+                                    ffi::lua_call(lua_raw, 1, 1);
+                                }
+                                dbg!(lua_gettop(lua_raw));
+                                let typename = std::ffi::CStr::from_ptr(lua_typename(lua_raw, lua_type(lua_raw, -1)));
+                                dbg!(typename);
+                                let mut len = 0;
+                                let string_slice= 
+                                    slice_from_raw_parts(ffi::lua_tolstring(lua_raw, -1, &raw mut len).cast(), len).as_ref().unwrap();
+                                let string = std::str::from_utf8(string_slice).unwrap();
+                                get_state(lua).get_vm().log_err(
+                                    IntoLuaMulti::into_lua_multi(format!("Error in thread 0x{:x} during wait: {}", thread as usize, string), lua).unwrap()
+                                );
+                            }
                             lua_settop(lua_raw, 0);
                         })?;
                     }

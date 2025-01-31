@@ -11,7 +11,7 @@ startup_flags = {
 "CreatorType": 0,
 "DebugMode": true,
 "GameId": 0,
-"GameName": "RobloxToGodotProject - Test Project",
+"GameName": "rblx-godot - Test Project",
 "GlobalsReadonly": false,
 "IsClient": false,
 "IsStudio": false,

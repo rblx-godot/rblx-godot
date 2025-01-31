@@ -17,4 +17,4 @@ pub use model::{IModel, Model, ModelComponent};
 pub use service_provider::{IServiceProvider, ServiceProviderComponent};
 pub use run_service::RunService;
 pub use data_model::{IDataModel, DataModel};
-pub use script::{IBaseScript, Script, LocalScript};
+pub use script::{IBaseScript, Script, LocalScript, ModuleScript, IModuleScript};

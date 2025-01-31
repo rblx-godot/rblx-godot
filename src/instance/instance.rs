@@ -177,7 +177,11 @@ impl DynInstance {
             let _ptr_this = this._ptr.as_ref().unwrap().upgrade().unwrap();
             let _guard_release = this.guard_release();
             let old_parent = old_parent.unwrap().upgrade().unwrap();
-            old_parent.get_instance_component_mut().children.retain(|x| *x != _ptr_this);
+            {
+                let mut write = old_parent.get_instance_component_mut();
+                write.children.retain(|x| *x != _ptr_this);
+                write.children_cache_dirty = true;
+            }
             old_parent.get_instance_component().child_removed.write().fire_ancestry(lua, (_ptr_this,))?;
         }
 
@@ -195,7 +199,11 @@ impl DynInstance {
             let ancestors = DynInstance::guard_get_ancestors(this);
             let _guard_release = this.guard_release();
             let new_parent = new_parent.unwrap();
-            new_parent.get_instance_component_mut().children.push(_ptr_this.clone());
+            {
+                let mut write = new_parent.get_instance_component_mut();
+                write.children.push(_ptr_this.clone());
+                write.children_cache_dirty = true;
+            }
             new_parent.get_instance_component().child_added.write().fire_ancestry(lua, (_ptr_this.clone(),))?;
             for ancestor in ancestors {
                 ancestor.get_instance_component().descendant_added.write().fire_ancestry(lua, (_ptr_this.clone(),))?;

@@ -12,7 +12,7 @@ use godot::{builtin::Variant, global::{godot_print, print_rich, printt}, meta::T
 use r2g_mlua::prelude::*;
 
 use crate::core::scheduler::GlobalTaskScheduler;
-use crate::instance::{DataModel, ManagedInstance};
+use crate::instance::{DataModel, ManagedInstance, WeakManagedActor};
 
 use super::state::LuauState;
 use super::{FastFlag, FastFlagValue, FastFlags, InstanceReplicationTable, InstanceTagCollectionTable, RwLock, Trc, Watchdog, Weak, GLOBAL_LOCKS_OF_THREAD};
@@ -75,12 +75,12 @@ impl RobloxVM {
             vm.set_global_lock(vm.access().as_ref().unwrap().global_lock.as_ref());
             let vm_ptr = &raw mut *vm;
             let flags = FastFlags::new(vm_ptr);
-            vm.get_mut().data_model.write(DataModel::new(&flags));
             vm.get_mut().flags.write(flags);
             if let Some(table) = flags_table {
                 vm.get_mut().flags.assume_init_mut()
-                    .initialize_with_table(table);
+                .initialize_with_table(table);
             }
+            vm.access().as_mut().unwrap().data_model.write(DataModel::new(vm.access().as_ref().unwrap().flags.assume_init_ref()));
             let main_state_ptr = vm.get_mut().main_state.access();
             let main_state_lock_ptr = &raw const vm.get_mut().main_state;
             vm.get_mut().states_locks.insert(main_state_ptr, main_state_lock_ptr);
@@ -193,11 +193,12 @@ impl RobloxVM {
     pub(crate) fn pop_global_lock_atomic(&self) {
         GLOBAL_LOCKS_OF_THREAD.with_borrow_mut(|x| x.pop().unwrap());
     }
-    pub(crate) fn create_sub_state(&mut self) -> Trc<LuauState> {
+    pub(crate) fn create_sub_state(&mut self, actor: &WeakManagedActor) -> Trc<LuauState> {
         let self_rwlock = unsafe {
             self.main_state.access().as_ref().unwrap_unchecked().get_vm_ptr()
         };
-        let state = LuauState::new(self_rwlock);
+        let mut state = LuauState::new(self_rwlock);
+        state.set_actor(actor.clone());
         let rc = Trc::new(state);
         self.states.push(rc.downgrade());
         rc

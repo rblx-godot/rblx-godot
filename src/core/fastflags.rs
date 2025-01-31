@@ -157,7 +157,7 @@ impl FastFlag {
             Self::MaxPhysicsStepsPerFrame => FlagInternal { int_value: 8 },
             
             Self::GameId => FlagInternal { int_value: 0 },
-            Self::GameName => FlagInternal { str_value: ManuallyDrop::new(String::from("RobloxToGodotProject")) },
+            Self::GameName => FlagInternal { str_value: ManuallyDrop::new(String::from("rblx-godot")) },
             Self::CreatorId => FlagInternal { int_value: 0 },
             Self::CreatorType => FlagInternal { int_value: 0 },
             Self::PlaceId => FlagInternal { int_value: 0 },
