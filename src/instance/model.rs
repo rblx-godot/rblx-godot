@@ -71,13 +71,13 @@ impl IInstance for Model {
             .or_else(|| self.get_pv_instance_component_mut().lua_set(self, lua, &name, &val))
             .unwrap_or_else(|| self.get_instance_component_mut().lua_set(lua, &name, val))
     }
-    fn clone_instance(&self) -> LuaResult<ManagedInstance> {
+    fn clone_instance(&self, lua: &Lua) -> LuaResult<ManagedInstance> {
         Ok(Irc::new_cyclic_fallable::<_, LuaError>(|x| {
             let i = x.cast_to_instance();
             Ok(Model {
-                instance: RwLock::new(self.get_instance_component().clone(&i)?),
-                pvinstance: RwLock::new(self.get_pv_instance_component().clone(&i)?),
-                model: RwLock::new(self.get_model_component().clone(&i)?)
+                instance: RwLock::new_with_flag_auto(self.get_instance_component().clone(lua, &i)?),
+                pvinstance: RwLock::new_with_flag_auto(self.get_pv_instance_component().clone(lua, &i)?),
+                model: RwLock::new_with_flag_auto(self.get_model_component().clone(lua, &i)?)
             })
         })?.cast_from_sized().unwrap())
     }
@@ -121,7 +121,7 @@ impl IInstanceComponent for ModelComponent {
         }
     }
 
-    fn clone(self: &RwLockReadGuard<'_, ModelComponent>, _: &WeakManagedInstance) -> LuaResult<Self> {
+    fn clone(self: &RwLockReadGuard<'_, ModelComponent>, _: &Lua, _: &WeakManagedInstance) -> LuaResult<Self> {
         Ok(ModelComponent {
             level_of_detail: self.level_of_detail,
             model_streaming_mode: self.model_streaming_mode,
@@ -144,9 +144,9 @@ impl Model {
     pub fn new() -> ManagedInstance {
         Irc::new_cyclic(|x| {
             Model {
-                instance: RwLock::new(InstanceComponent::new(x.cast_to_instance(), "Model")),
-                pvinstance: RwLock::new(PVInstanceComponent::new(x.cast_to_instance(), "Model")),
-                model: RwLock::new(ModelComponent::new(x.cast_to_instance(), "Model"))
+                instance: RwLock::new_with_flag_auto(InstanceComponent::new(x.cast_to_instance(), "Model")),
+                pvinstance: RwLock::new_with_flag_auto(PVInstanceComponent::new(x.cast_to_instance(), "Model")),
+                model: RwLock::new_with_flag_auto(ModelComponent::new(x.cast_to_instance(), "Model"))
             }
         }).cast_from_sized().unwrap()
     }

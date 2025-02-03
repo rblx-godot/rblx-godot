@@ -170,7 +170,7 @@ impl<T, A: Allocator> Trc<T, A> {
             alloc
         };
         unsafe { 
-            (&raw mut (head.as_ptr().as_mut().unwrap_unchecked().lock)).write(RwLock::new(ManuallyDrop::<T>::new(value)));
+            (&raw mut (head.as_ptr().as_mut().unwrap_unchecked().lock)).write(RwLock::new_with_flag_auto(ManuallyDrop::<T>::new(value)));
         }
         this
     }
@@ -186,7 +186,7 @@ impl<T, A: Allocator> Trc<T, A> {
         };
 
         unsafe { 
-            (&raw mut (head.as_ptr().as_mut().unwrap_unchecked().lock)).write(RwLock::new(ManuallyDrop::<T>::new(data_fn(&this.downgrade()))));
+            (&raw mut (head.as_ptr().as_mut().unwrap_unchecked().lock)).write(RwLock::new_with_flag_auto(ManuallyDrop::<T>::new(data_fn(&this.downgrade()))));
         }
         this
     }
@@ -199,7 +199,7 @@ impl<T, A: Allocator> Trc<T, A> {
             alloc
         };
         unsafe { 
-            (&raw mut (head.as_ptr().as_mut().unwrap_unchecked().lock)).write(RwLock::new(ManuallyDrop::new(MaybeUninit::uninit())));
+            (&raw mut (head.as_ptr().as_mut().unwrap_unchecked().lock)).write(RwLock::new_with_flag_auto(ManuallyDrop::new(MaybeUninit::uninit())));
         }
         this
     }

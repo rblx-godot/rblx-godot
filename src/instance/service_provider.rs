@@ -51,7 +51,7 @@ impl IInstanceComponent for ServiceProviderComponent {
         None // unimplemented
     }
 
-    fn clone(self: &RwLockReadGuard<'_, Self>, new_ptr: &WeakManagedInstance) -> LuaResult<Self> {
+    fn clone(self: &RwLockReadGuard<'_, Self>, _: &Lua, new_ptr: &WeakManagedInstance) -> LuaResult<Self> {
         Ok(Self::new(new_ptr.clone(), ""))
     }
 

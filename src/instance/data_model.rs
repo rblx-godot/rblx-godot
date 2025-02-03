@@ -85,7 +85,7 @@ impl IInstance for DataModel {
             .unwrap_or_else(|| self.instance.write().unwrap().lua_set(lua, &name, val))
     }
 
-    fn clone_instance(&self) -> LuaResult<ManagedInstance> {
+    fn clone_instance(&self, _: &Lua) -> LuaResult<ManagedInstance> {
         Err(LuaError::RuntimeError("DataModel cannot be cloned".into()))
     }
 }
@@ -115,9 +115,9 @@ impl DataModel {
     pub fn new(flags: &FastFlags) -> ManagedInstance {
         let game: Irc<DynInstance> = Irc::new_cyclic(|x|
             DataModel {
-                instance: RwLock::new(InstanceComponent::new(x.cast_to_instance(), "DataModel")),
-                service_provider: RwLock::new(ServiceProviderComponent::new(x.cast_to_instance(), "DataModel")),
-                data_model: RwLock::new(DataModelComponent::new(x.cast_to_instance(), "DataModel"))
+                instance: RwLock::new_with_flag_auto(InstanceComponent::new(x.cast_to_instance(), "DataModel")),
+                service_provider: RwLock::new_with_flag_auto(ServiceProviderComponent::new(x.cast_to_instance(), "DataModel")),
+                data_model: RwLock::new_with_flag_auto(DataModelComponent::new(x.cast_to_instance(), "DataModel"))
         }).cast_from_sized().unwrap();
         game.set_name(flags.get_string(FastFlag::GameName)).unwrap();
         game.lock_parent();
@@ -168,7 +168,7 @@ impl IInstanceComponent for DataModelComponent {
         }
     }
 
-    fn clone(self: &RwLockReadGuard<'_, Self>, _new_ptr: &WeakManagedInstance) -> LuaResult<Self> {
+    fn clone(self: &RwLockReadGuard<'_, Self>, _: &Lua, _: &WeakManagedInstance) -> LuaResult<Self> {
         Err(LuaError::RuntimeError("Cannot clone DataModelComponent".into()))
     }
 

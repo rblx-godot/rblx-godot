@@ -41,7 +41,7 @@ impl IInstanceComponent for PVInstanceComponent {
         None
     }
 
-    fn clone(self: &RwLockReadGuard<'_, PVInstanceComponent>, _: &WeakManagedInstance) -> LuaResult<Self> {
+    fn clone(self: &RwLockReadGuard<'_, PVInstanceComponent>, _: &Lua, _: &WeakManagedInstance) -> LuaResult<Self> {
         Ok(PVInstanceComponent {
             origin: self.origin,
             pivot_offset: self.pivot_offset

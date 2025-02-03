@@ -26,7 +26,7 @@ pub trait IInstanceComponent: Sized {
     }
     fn lua_get(self: &mut RwLockReadGuard<'_, Self>, ptr: &DynInstance, lua: &Lua, key: &String) -> Option<LuaResult<LuaValue>>;
     fn lua_set(self: &mut RwLockWriteGuard<'_, Self>, ptr: &DynInstance, lua: &Lua, key: &String, value: &LuaValue) -> Option<LuaResult<()>>;
-    fn clone(self: &RwLockReadGuard<'_, Self>, new_ptr: &WeakManagedInstance) -> LuaResult<Self>;
+    fn clone(self: &RwLockReadGuard<'_, Self>, lua: &Lua, new_ptr: &WeakManagedInstance) -> LuaResult<Self>;
     fn new(ptr: WeakManagedInstance, class_name: &'static str) -> Self;
 }
 
@@ -44,7 +44,11 @@ pub trait IInstance: IObject {
     
     fn lua_set(&self, lua: &Lua, name: String, val: LuaValue) -> LuaResult<()>;
 
-    fn clone_instance(&self) -> LuaResult<ManagedInstance>;
+    fn clone_instance(&self, lua: &Lua) -> LuaResult<ManagedInstance>;
+
+    fn get_actor(&self) -> LuaResult<Option<ManagedInstance>> {
+        DynInstance::guard_find_first_ancestor_of_class(&self.get_instance_component(),"Actor".into())
+    }
 }
 
 impl DynInstance {
@@ -301,10 +305,15 @@ impl DynInstance {
     pub fn guard_is_descendant_of(this: &impl IReadInstanceComponent, ancestor: ManagedInstance) -> LuaResult<bool> {
         DynInstance::is_ancestor_of_guard_guard(&ancestor.get_instance_component(), this)
     }
-    
-    pub fn get_actor(&self) -> LuaResult<Option<ManagedInstance>> {
-        self.find_first_ancestor_of_class("Actor".into())
+    pub fn guard_find_first_ancestor_of_class(this: &impl IReadInstanceComponent, class: String) -> LuaResult<Option<ManagedInstance>> {
+        for i in DynInstance::guard_get_ancestors(this) {
+            if i.get_class_name() == class {
+                return Ok(Some(i));
+            }
+        }
+        Ok(None)
     }
+    
     pub fn get_debug_id(&self, _scope_length: LuaNumber) -> LuaResult<String> {
         Ok(format!("0x{:x}",(&raw const *self.get_instance_component()) as usize))
     }
@@ -549,10 +558,10 @@ impl IInstanceComponent for InstanceComponent {
         };
         inst
     }
-    fn clone(self: &RwLockReadGuard<'_, Self>, ptr: &WeakManagedInstance) -> LuaResult<Self> {
+    fn clone(self: &RwLockReadGuard<'_, Self>, lua: &Lua, ptr: &WeakManagedInstance) -> LuaResult<Self> {
         let mut new_children = Vec::new();
         for i in self.children.iter() {
-            let inst = i.clone_instance();
+            let inst = i.clone_instance(lua);
             if inst.is_ok() {
                 new_children.push(unsafe { inst.unwrap_unchecked() });
             }
@@ -616,8 +625,8 @@ impl InstanceComponent {
                 }
             ),
             "Clone" => lua_getter!(function, lua,
-                |_, (this, ): (ManagedInstance, )| 
-                    this.clone_instance()
+                |lua, (this, ): (ManagedInstance, )| 
+                    this.clone_instance(lua)
             ),
             "Destroy" => lua_getter!(function, lua,
                 |lua, (this, ): (ManagedInstance, )| {

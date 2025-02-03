@@ -19,6 +19,12 @@ impl BitOr for SecurityContext {
     }
 }
 
+impl SecurityContext {
+    pub const fn has(self, other: SecurityContext) -> bool {
+        (self.0 & other.0) == other.0
+    }
+}
+
 impl Into<u8> for SecurityContext {
     fn into(self) -> u8 {
         self.0
@@ -28,27 +34,47 @@ impl Into<u8> for SecurityContext {
 #[repr(u8)]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ThreadIdentityType {
-    ANON,
-    USERINIT,
-    SCRIPT,
-    SCRIPTINROBLOXPLACE,
-    SCRIPTBYROBLOX,
-    STUDIOCOMMANDBAR,
-    STUDIOPLUGIN,
-    WEBSERV,
-    REPL
+    Anon,
+    /// UserInit is a thread that was created by a user, such as a plugin or a command bar script.
+    UserInit,
+    /// Script is a thread that was created by a script.
+    Script,
+    /// Script in a place made by Roblox.
+    ScriptInRobloxPlace,
+    /// Core script
+    ScriptByRoblox,
+    /// Command bar script
+    StudioCommandBar,
+    /// Studio plugin
+    StudioPlugin,
+    /// Web server
+    WebServer,
+    /// Replication from server to client
+    Replication
 }
-#[inline]
-pub fn get_security_context_for_identity(t: ThreadIdentityType) -> SecurityContext {
-    match t {
-        ThreadIdentityType::ANON => SecurityContext::NONE,
-        ThreadIdentityType::USERINIT => SecurityContext::PLUGIN | SecurityContext::ROBLOX_PLACE | SecurityContext::LOCAL_USER,
-        ThreadIdentityType::SCRIPT => SecurityContext::NONE,
-        ThreadIdentityType::SCRIPTINROBLOXPLACE => SecurityContext::ROBLOX_PLACE,
-        ThreadIdentityType::SCRIPTBYROBLOX => SecurityContext::PLUGIN | SecurityContext::ROBLOX_PLACE | SecurityContext::LOCAL_USER | SecurityContext::ROBLOX_SCRIPT,
-        ThreadIdentityType::STUDIOCOMMANDBAR => SecurityContext::PLUGIN | SecurityContext::ROBLOX_PLACE | SecurityContext::LOCAL_USER,
-        ThreadIdentityType::STUDIOPLUGIN => SecurityContext::PLUGIN,
-        ThreadIdentityType::WEBSERV => SecurityContext::ROBLOX,
-        ThreadIdentityType::REPL => SecurityContext::WRITE_PLAYER | SecurityContext::ROBLOX_PLACE | SecurityContext::ROBLOX_SCRIPT
+
+impl Default for ThreadIdentityType {
+    fn default() -> Self {
+        ThreadIdentityType::Anon
+    }
+}
+impl ThreadIdentityType {
+    #[inline]
+    pub const fn get_security_contexts(&self) -> SecurityContext {
+        match self {
+            ThreadIdentityType::Anon => SecurityContext::NONE,
+            ThreadIdentityType::UserInit => 
+                SecurityContext(SecurityContext::PLUGIN.0 | SecurityContext::ROBLOX_PLACE.0 | SecurityContext::LOCAL_USER.0),
+            ThreadIdentityType::Script => SecurityContext::NONE,
+            ThreadIdentityType::ScriptInRobloxPlace => SecurityContext::ROBLOX_PLACE,
+            ThreadIdentityType::ScriptByRoblox => 
+                SecurityContext(SecurityContext::PLUGIN.0 | SecurityContext::ROBLOX_PLACE.0 | SecurityContext::LOCAL_USER.0 | SecurityContext::ROBLOX_SCRIPT.0),
+            ThreadIdentityType::StudioCommandBar => 
+                SecurityContext(SecurityContext::PLUGIN.0 | SecurityContext::ROBLOX_PLACE.0 | SecurityContext::LOCAL_USER.0),
+            ThreadIdentityType::StudioPlugin => SecurityContext::PLUGIN,
+            ThreadIdentityType::WebServer => SecurityContext::ROBLOX,
+            ThreadIdentityType::Replication => 
+                SecurityContext(SecurityContext::WRITE_PLAYER.0 | SecurityContext::ROBLOX_PLACE.0 | SecurityContext::ROBLOX_SCRIPT.0)
+        }
     }
 }

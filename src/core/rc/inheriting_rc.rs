@@ -334,7 +334,7 @@ where
     pub fn cast_from_unsized<U: 'static + ?Sized>(self) -> Result<Irc<U, A>, Irc<T, A>> {
         let (head, ptr, alloc) = self.deconstruct();
         let p = head.as_ptr();
-        let metadata = unsafe { fat_to_metadata(p) }; 
+        let metadata = fat_to_metadata(p); 
         let base =  unsafe { head.as_ptr().as_mut().unwrap_unchecked().base.as_mut().unwrap_unchecked() };
         let result = inheritance_cast_to_mut!(base, U);
         if result.is_ok() {
@@ -367,7 +367,7 @@ where
     pub fn cast_from_sized<U: 'static + ?Sized>(self) -> Result<Irc<U, A>, Irc<T, A>> {
         let (head, ptr, alloc) = self.deconstruct();
         let p = head.as_ptr();
-        let metadata = unsafe { fat_to_metadata(p as *mut IrcHead<dyn InheritanceBase>) }; 
+        let metadata = fat_to_metadata(p as *mut IrcHead<dyn InheritanceBase>); 
         let base =  unsafe { head.as_ptr().as_mut().unwrap_unchecked().base.as_mut().unwrap_unchecked() };
         let result = inheritance_cast_to_mut!(base, U);
         if result.is_ok() {

@@ -117,7 +117,7 @@ impl IInstance for RunService {
     fn lua_set(&self, lua: &Lua, name: String, val: LuaValue) -> LuaResult<()> {
         self.instance_component.write().unwrap().lua_set(lua, &name, val)
     }
-    fn clone_instance(&self) -> LuaResult<ManagedInstance> {
+    fn clone_instance(&self, _: &Lua) -> LuaResult<ManagedInstance> {
         Err(LuaError::RuntimeError("Cannot clone RunService.".into()))
     }
 }
@@ -125,8 +125,8 @@ impl IInstance for RunService {
 impl RunService {
     pub fn new() -> Irc<RunService> {
         Irc::new_cyclic(|x| RunService {
-            instance_component: RwLock::new(InstanceComponent::new(x.cast_to_instance().clone(), "RunService")),
-            render_steps: RwLock::default(),
+            instance_component: RwLock::new_with_flag_auto(InstanceComponent::new(x.cast_to_instance().clone(), "RunService")),
+            render_steps: RwLock::new_with_flag_auto(Vec::new()),
             heart_beat: RBXScriptSignal::new(),
             post_simulation: RBXScriptSignal::new(),
             pre_animation: RBXScriptSignal::new(),

@@ -48,7 +48,7 @@ pub unsafe fn fat_to_metadata<T: ?Sized>(ptr: *const T) -> PtrMetadata {
 }
 #[cfg(debug_assertions)]
 #[inline(always)]
-pub unsafe fn fat_to_metadata<T: ?Sized>(ptr: *const T) -> PtrMetadata {
+pub fn fat_to_metadata<T: ?Sized>(ptr: *const T) -> PtrMetadata {
     use std::alloc::Layout;
 
     use crate::godot_debug;
@@ -58,7 +58,7 @@ pub unsafe fn fat_to_metadata<T: ?Sized>(ptr: *const T) -> PtrMetadata {
         godot_debug!("passed pointer is missing metadata");
         panic!("passed pointer is missing metadata");
     }
-    transmute_unchecked(metadata_before)
+    unsafe { transmute_unchecked(metadata_before) }
 }
 
 #[inline(always)]

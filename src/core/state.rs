@@ -5,18 +5,22 @@ use std::ptr::null_mut;
 use godot::global::godot_print;
 use r2g_mlua::{prelude::*, ChunkMode, Compiler};
 use super::scheduler::ITaskScheduler;
-use super::{FastFlag, FastFlags, RwLock, RwLockReadGuard, RwLockWriteGuard, TaskScheduler, Trc};
+use super::ParallelDispatch::{Default, Synchronized};
+use super::{borrowck_ignore, FastFlag, FastFlags, RwLock, RwLockReadGuard, RwLockWriteGuard, TaskScheduler, Trc};
 use super::{security::ThreadIdentityType, vm::RobloxVM};
+use crate::instance::WeakManagedInstance;
 use crate::userdata::register_userdata_singletons;
 
 pub mod registry_keys {
     pub const VM_REGISTRYKEY: &'static str = "__vm__";
     pub const STATE_REGISTRYKEY: &'static str = "__state__";
+    pub(super) const TASK_PUSH_WAIT: &'static str = "__task_push_wait__";
+    pub(super) const TASK_PUSH_SYNC_DESYNC: &'static str = "__task_push_sync_desync__";
 }
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct ThreadIdentity {
     pub security_identity: ThreadIdentityType,
-    pub script: Option<()> // TODO: Add the type
+    pub script: Option<WeakManagedInstance>,
 }
 #[derive(Debug)]
 pub struct LuauState {
@@ -64,10 +68,22 @@ impl LuauState {
         }
         Ok(())
     }
-    unsafe fn _init(&mut self) {
-        self.lua.set_named_registry_value(registry_keys::VM_REGISTRYKEY, LuaLightUserData(self.vm.cast())).unwrap();
-        let state_userdata = LuaLightUserData(addr_of_mut!(*self).cast());
-        self.lua.set_named_registry_value(registry_keys::STATE_REGISTRYKEY, state_userdata).unwrap();
+    pub fn get_thread_identity_pointer(&self, thread: *const c_void) -> Option<&ThreadIdentity> {
+        self.threads.get(&thread)
+    }
+    pub fn get_thread_identity_pointer_pointer_mut(&mut self, thread: *const c_void) -> Option<&mut ThreadIdentity> {
+        self.threads.get_mut(&thread)
+    }
+    pub fn get_thread_identity(&self, thread: LuaThread) -> Option<&ThreadIdentity> {
+        self.get_thread_identity_pointer(thread.to_pointer().cast())
+    }
+    pub fn get_thread_identity_mut(&mut self, thread: LuaThread) -> Option<&mut ThreadIdentity> {
+        self.get_thread_identity_pointer_pointer_mut(thread.to_pointer().cast())
+    }
+    pub fn set_thread_identity(&mut self, thread: LuaThread, identity: ThreadIdentity) {
+        self.threads.insert(thread.to_pointer().cast(), identity);
+    }
+    unsafe fn register_globals(&mut self) {
         self.lua.globals().raw_set("print", self.lua.create_function(|lua, args: LuaMultiValue| {
             let vm = Self::get_vm_from_lua(lua);
             vm.read().unwrap().log_message(args);
@@ -79,6 +95,62 @@ impl LuauState {
             Ok(())
         }).unwrap()).unwrap();
         self.lua.globals().raw_set("game", self.vm.as_ref().unwrap_unchecked().read().unwrap().get_game_instance()).unwrap();
+        // Task scheduler registration
+        {
+            type DynTaskScheduler = dyn ITaskScheduler;
+            let task = self.lua.create_table().unwrap();
+            task.raw_set("spawn", self.lua.create_function(|lua, (thread_or_func,mv): (LuaValue, LuaMultiValue)| {
+                match thread_or_func {
+                    LuaValue::Thread(thread) => get_state(borrowck_ignore(lua)).get_task_scheduler().spawn_thread(thread),
+                    LuaValue::Function(func) => get_state(borrowck_ignore(lua)).get_task_scheduler().spawn_func(lua, func, mv),
+                    _ => Err(LuaError::RuntimeError("invalid argument #1 to 'spawn' (thread or function expected)".into()))
+                }
+            }).unwrap()).unwrap();
+            task.raw_set("defer", self.lua.create_function(|lua, (thread_or_func,mv): (LuaValue, LuaMultiValue)| {
+                match thread_or_func {
+                    LuaValue::Thread(thread) => get_state(borrowck_ignore(lua)).get_task_scheduler_mut().defer_thread(thread, Default),
+                    LuaValue::Function(func) => get_state(borrowck_ignore(lua)).get_task_scheduler_mut().defer_func(lua, func, mv, Synchronized),
+                    _ => Err(LuaError::RuntimeError("invalid argument #1 to 'defer' (thread or function expected)".into()))
+                }
+            }).unwrap()).unwrap();
+            task.raw_set("delay", self.lua.create_function(|lua, (time,thread_or_func,mv): (f64,LuaValue,LuaMultiValue)| {
+                match thread_or_func {
+                    LuaValue::Thread(thread) => get_state(borrowck_ignore(lua)).get_task_scheduler_mut().delay_thread(thread, Default, time),
+                    LuaValue::Function(func) => get_state(borrowck_ignore(lua)).get_task_scheduler_mut().delay_func(lua, func, mv, Synchronized, time),
+                    _ => Err(LuaError::RuntimeError("invalid argument #2 to 'delay' (thread or function expected)".into()))
+                }
+            }).unwrap()).unwrap();
+            task.raw_set("cancel", self.lua.create_function(|lua, thread: LuaThread| {
+                get_state(borrowck_ignore(lua)).get_task_scheduler_mut().cancel(lua, &thread)
+            }).unwrap()).unwrap();
+            task.raw_set("synchronize", self.lua.create_c_function(DynTaskScheduler::synchronize).unwrap()).unwrap();
+            task.raw_set("desynchronize", self.lua.create_c_function(DynTaskScheduler::desynchronize).unwrap()).unwrap();
+            task.raw_set("wait", self.lua.create_c_function(DynTaskScheduler::wait).unwrap()).unwrap();
+            task.raw_set("synchronize", self.lua.create_c_function(DynTaskScheduler::synchronize).unwrap()).unwrap();
+            task.raw_set("desynchronize", self.lua.create_c_function(DynTaskScheduler::desynchronize).unwrap()).unwrap();
+            task.set_readonly(true);
+
+            self.lua.globals().raw_set("task", task).unwrap();
+            self.lua.set_named_registry_value("task", self.lua.globals().raw_get::<LuaValue>("task").unwrap()).unwrap();
+
+            self.lua.set_named_registry_value(
+                registry_keys::TASK_PUSH_WAIT,
+                self.lua.create_function(DynTaskScheduler::push_wait).unwrap()
+            ).unwrap();
+            self.lua.set_named_registry_value(
+                registry_keys::TASK_PUSH_SYNC_DESYNC,
+                self.lua.create_function(DynTaskScheduler::push_sync_desync).unwrap()
+            ).unwrap()
+        }
+
+    }
+    unsafe fn _init(&mut self) {
+        self.lua.set_named_registry_value(registry_keys::VM_REGISTRYKEY, LuaLightUserData(self.vm.cast())).unwrap();
+        let state_userdata = LuaLightUserData(addr_of_mut!(*self).cast());
+        self.lua.set_named_registry_value(registry_keys::STATE_REGISTRYKEY, state_userdata).unwrap();
+        
+        self.register_globals();
+        
         self.lua.sandbox(true).unwrap();
         self.lua.enable_jit(false);
         register_userdata_singletons(&mut self.lua).unwrap();
@@ -218,6 +290,11 @@ impl LuauState {
         self.lua.gc_step_kbytes(kb).unwrap();
         self.lua.gc_stop();
     }
+    /// Gets the RobloxVM pointer. This is thread-safe even with `.access()`.
+    #[inline(always)]
+    pub(super) const fn get_vm_ptr(&self) -> *mut RwLock<RobloxVM> {
+        self.vm
+    }
 }
 
 impl Drop for LuauState {
@@ -236,6 +313,17 @@ pub fn get_current_identity(l: &Lua) -> Option<&mut ThreadIdentity> {
         state = reg.unwrap_unchecked().0.cast::<LuauState>().as_mut().unwrap();
     }
     state.threads.get_mut(&l.current_thread().to_pointer().cast())
+}
+pub fn get_thread_identity<'a, 'b>(l: &'a Lua, thread: &'b LuaThread) -> Option<&'b ThreadIdentity> {
+    let state;
+    unsafe {
+        let reg: Option<LuaLightUserData> = l.named_registry_value(registry_keys::STATE_REGISTRYKEY).ok();
+        if reg.is_none() {
+            return None;
+        }
+        state = reg.unwrap_unchecked().0.cast::<LuauState>().as_mut().unwrap();
+    }
+    state.threads.get(&thread.to_pointer().cast())
 }
 // SAFETY: This function is safe because lua instances can be obtained only if its inside of it or if it already holds a lock.
 pub fn get_state(l: &Lua) -> &mut LuauState {

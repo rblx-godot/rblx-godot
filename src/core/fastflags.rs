@@ -26,6 +26,7 @@ pub enum FastFlag {
     GlobalsReadonly,          // bool
     IsClient,                 // bool
     IsStudio,                 // bool
+    DebugMode,                // bool
 
     SignalBehavior            // int
 }
@@ -73,7 +74,8 @@ impl FlagInternal {
             FastFlag::VSync |
             FastFlag::GlobalsReadonly |
             FastFlag::IsClient |
-            FastFlag::IsStudio => unsafe { self.bool_value },
+            FastFlag::IsStudio |
+            FastFlag::DebugMode => unsafe { self.bool_value },
             _ => panic!("Invalid flag")
         }
     }
@@ -117,7 +119,8 @@ impl FlagInternal {
             FastFlag::VSync |
             FastFlag::GlobalsReadonly |
             FastFlag::IsClient |
-            FastFlag::IsStudio => self.bool_value = v,
+            FastFlag::IsStudio |
+            FastFlag::DebugMode => self.bool_value = v,
             _ => panic!("Invalid flag")
         }
     }
@@ -139,6 +142,7 @@ impl FlagInternal {
             FastFlag::VSync |
             FastFlag::GlobalsReadonly |
             FastFlag::IsClient |
+            FastFlag::DebugMode |
             FastFlag::IsStudio => unsafe { FastFlagValue::Bool(self.bool_value) }
         }
     }
@@ -165,6 +169,7 @@ impl FastFlag {
             Self::GlobalsReadonly => FlagInternal { bool_value: false },
             Self::IsClient => FlagInternal { bool_value: true },
             Self::IsStudio => FlagInternal { bool_value: false },
+            Self::DebugMode => FlagInternal { bool_value: true },
             
             Self::SignalBehavior => FlagInternal { int_value: 0 }
         }
@@ -234,6 +239,8 @@ impl FastFlags {
     }
     #[inline(always)]
     const fn get_flag_internal(&self, flag: FastFlag) -> &FlagInternal {
+        // SAFETY: For every fast flag, there is an element inside the slice.
+        // The size of the slice is equal to the number of variants in FastFlag.
         unsafe { 
             self.flags.get()
                 .as_ref().unwrap_unchecked()
@@ -260,32 +267,32 @@ impl FastFlags {
     pub fn set_string(&self, flag: FastFlag, v: String) {
         unsafe {
             assert!(!self.vm.as_ref().unwrap_unchecked()
-                .access().as_mut().unwrap_unchecked()
-                .get_main_state().get_task_scheduler().is_desynchronized());
+                .access().as_ref().unwrap_unchecked()
+                .get_global_lock_state());
         }
         self.get_flag_mut_internal(flag).set_string(flag, v)
     }
     pub fn set_int(&self, flag: FastFlag, v: i64) {
         unsafe {
             assert!(!self.vm.as_ref().unwrap_unchecked()
-                .access().as_mut().unwrap_unchecked()
-                .get_main_state().get_task_scheduler().is_desynchronized());
+                .access().as_ref().unwrap_unchecked()
+                .get_global_lock_state());
         }
         self.get_flag_mut_internal(flag).set_int(flag, v)
     }
     pub fn set_float(&self, flag: FastFlag, v: f64) {
         unsafe {
             assert!(!self.vm.as_ref().unwrap_unchecked()
-                .access().as_mut().unwrap_unchecked()
-                .get_main_state().get_task_scheduler().is_desynchronized());
+                .access().as_ref().unwrap_unchecked()
+                .get_global_lock_state());
         }
         self.get_flag_mut_internal(flag).set_float(flag, v)
     }
     pub fn set_bool(&self, flag: FastFlag, v: bool) {
         unsafe {
             assert!(!self.vm.as_ref().unwrap_unchecked()
-                .access().as_mut().unwrap_unchecked()
-                .get_main_state().get_task_scheduler().is_desynchronized());
+                .access().as_ref().unwrap_unchecked()
+                .get_global_lock_state());
         }
         self.get_flag_mut_internal(flag).set_bool(flag, v)
     }

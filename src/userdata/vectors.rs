@@ -7,39 +7,62 @@ use r2g_mlua::prelude::*;
 use super::enums::{Axis, NormalId};
 use super::LuaSingleton;
 
-#[derive(Clone, Copy, Default, PartialEq, PartialOrd, Debug)]
+/// The [`Vector2`](https://create.roblox.com/docs/en-us/reference/engine/datatypes/Vector2) data type represents a 2D value with direction and magnitude. Some applications include GUI elements and 2D mouse positions.
+#[derive(Clone, Copy, Default, PartialEq, PartialOrd, Debug, Hash)]
 pub struct Vector2<T = f64> {
     pub x: T,
     pub y: T
 }
+/// The [`Vector2int16`](https://create.roblox.com/docs/en-us/reference/engine/datatypes/Vector2int16) data type represents a vector in 2D space with a signed 16-bit integer for its components. It is similar to [`Vector2`](https://docs.rs/roblox-to-godot-project/latest/roblox_to_godot_project/userdata/type.Vector2.html) in that it allows for the same arithmetic operations, but it lacks commonly used vector functions.
+/// 
+/// `Vector2int16` should not be confused with:
+/// - [`Vector2`](https://docs.rs/roblox-to-godot-project/latest/roblox_to_godot_project/userdata/type.Vector2.html), a more precise and complete implementation for 2D vectors.
+/// - [`Vector3int16`](https://docs.rs/roblox-to-godot-project/latest/roblox_to_godot_project/userdata/type.Vector3int16.html), a similar implementation for 3D vectors.
+/// 
+/// For each component:
+/// - The lower bound is -2^15^, or -32,768.
+/// - The upper bound is 2^15^ − 1, or 32,767.
 pub type Vector2int16 = Vector2<i16>;
 
-#[derive(Clone, Copy, Default, PartialEq, PartialOrd, Debug)]
+/// The [`Vector3`](https://create.roblox.com/docs/en-us/reference/engine/datatypes/Vector3) data type represents a vector in 3D space, typically usually used as a point in 3D space or the dimensions of a rectangular prism. `Vector3` supports basic component-based arithmetic operations (sum, difference, product, and quotient) and these operations can be applied on the left or right hand side to either another `Vector3` or a number. It also features methods for common vector operations, such as Cross() and Dot().
+#[derive(Clone, Copy, Default, PartialEq, PartialOrd, Debug, Hash)]
 pub struct Vector3<T = f64> {
     pub x: T,
     pub y: T,
     pub z: T
 }
+/// The [`Vector3int16`](https://create.roblox.com/docs/en-us/reference/engine/datatypes/Vector3int16) data type represents a vector in 3D space with a signed 16-bit integer for its components. It is similar to [`Vector3`](https://docs.rs/roblox-to-godot-project/latest/roblox_to_godot_project/userdata/type.Vector3.html) in that it allows for the same arithmetic operations, but it lacks commonly used vector functions.
+/// 
+/// `Vector3int16` should not be confused with:
+/// - [`Vector3`](https://docs.rs/roblox-to-godot-project/latest/roblox_to_godot_project/userdata/type.Vector3.html), a more precise and complete implementation for 3D vectors.
+/// - [`Vector2int16`](https://docs.rs/roblox-to-godot-project/latest/roblox_to_godot_project/userdata/type.Vector2int16.html), a similar implementation for 2D vectors.
+/// 
+/// For each component:
+/// - The lower bound is -2^15^, or -32,768.
+/// - The upper bound is 2^15^ − 1, or 32,767.
 pub type Vector3int16 = Vector3<i16>;
 
 impl Vector2 {
+    /// A `Vector2` with magnitude of zero.
     pub const ZERO: Vector2 = Vector2 {x: 0f64, y: 0f64};
     pub const ONE: Vector2 = Vector2 {x: 1f64, y: 1f64};
     pub const X_AXIS: Vector2 = Vector2 {x: 1f64, y: 0f64};
     pub const Y_AXIS: Vector2 = Vector2 {x: 0f64, y: 1f64};
-
+    /// Creates a new `Vector2` with the specified x and y components.
     pub const fn new(x: f64, y: f64) -> Vector2 {
         Vector2 {
             x, y
         }
     }
-
+    /// Returns the magnitude of the vector.
     pub fn get_magnitude(&self) -> f64 {
         (self.x*self.x + self.y*self.y).sqrt()
     }
+    /// Sets the magnitude of the vector by getting the unit vector and multiplying it by the specified value.
     pub fn set_magnitude(&mut self, value: f64) {
         *self = self.get_unit()*value;
     }
+    /// Returns a vector of same direction with magnitude of one.
     pub fn get_unit(&self) -> Vector2 {
         let magnitude = self.get_magnitude();
         Vector2 {
@@ -47,63 +70,75 @@ impl Vector2 {
             y: self.y / magnitude
         }
     }
+    /// Returns the cross product of the vector with another vector.
     pub fn cross(&self, other: Vector2) -> f64 {
         self.x*other.y - self.y*other.x
     }
+    /// Returns the absolute value of the vector.
     pub fn abs(&self) -> Vector2 {
         Vector2 {
             x: self.x.abs(),
             y: self.y.abs()
         }
     }
+    /// Returns the smallest integer greater than or equal to the vector.
     pub fn ceil(&self) -> Vector2 {
         Vector2 {
             x: self.x.ceil(),
             y: self.y.ceil()
         }
     }
+    /// Returns the largest integer less than or equal to the vector.
     pub fn floor(&self) -> Vector2 {
         Vector2 {
             x: self.x.floor(),
             y: self.y.floor()
         }
     }
+    /// Returns a vector with the sign of each component.
     pub fn sign(&self) -> Vector2 {
         Vector2 {
             x: self.x.sign(),
             y: self.y.sign()
         }
     }
+    /// Returns the dot product of the vector with another vector.
     pub fn dot(&self, other: Vector2) -> f64 {
         self.x*other.x+self.y*other.y
     }
+    /// Returns the angle between the vector and another vector.
     pub fn get_angle(&self, other: Vector2, is_signed: bool) -> f64 {
         if is_signed {
             todo!();
         }
         (self.dot(other)/(self.get_magnitude()*other.get_magnitude())).acos()
     }
+    /// Returns a vector linearly interpolated between the vector and another vector.
     pub fn lerp(&self, other: Vector2, alpha: f64) -> Vector2 {
         *self+(other-*self)*alpha
     }
+    /// Returns a vector with each component set to the maximum of the vector and another vector.
     pub fn max(&self, other: Vector2) -> Vector2 {
         Vector2 {
             x: self.x.max(other.x),
             y: self.y.max(other.y)
         }
     }
+    /// Returns a vector with each component set to the minimum of the vector and another vector.
     pub fn min(&self, other: Vector2) -> Vector2 {
         Vector2 {
             x: self.x.min(other.x),
             y: self.y.min(other.y)
         }
     }
+    /// Returns whether the vector is approximately equal to another vector with a specified epsilon.
     pub fn fuzzy_eq(&self, other: Vector2, epsilon: f64) -> bool {
         (self.x-other.x).abs() < epsilon && (self.y-other.y).abs() < epsilon
     }
 }
 
 impl Vector2int16 {
+    /// Creates a new `Vector2int16` with the specified x and y components.
     pub const fn new(x: i16, y: i16) -> Vector2int16 {
         Vector2int16 {
             x, y

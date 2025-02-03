@@ -5,6 +5,7 @@
 #![feature(arbitrary_self_types)]
 #![feature(negative_impls)]
 #![feature(variant_count)]
+#![feature(panic_always_abort)]
 
 #![allow(internal_features)]
 #![feature(core_intrinsics)]
@@ -63,6 +64,11 @@ unsafe impl ExtensionLibrary for RobloxToGodotProjectExtension {
         match level {
             InitLevel::Scene => {
                 verify_gdext_api_compat();
+
+                // Currently, rust panicking leaves Luau in a corrupted state.
+                // I am unsure if this is due to mlua or due to task scheduler's exec raw.
+                std::panic::always_abort();
+
                 godot_print!("Roblox To Godot Project v{} (Rust runtime v{}) by {}\n", env!("CARGO_PKG_VERSION"), RUST_VERSION, {
                     let authors: &'static str = env!("CARGO_PKG_AUTHORS");
                     authors.replace(":", ", ")

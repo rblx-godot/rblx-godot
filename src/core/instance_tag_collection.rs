@@ -20,7 +20,7 @@ impl InstanceTagCollectionTable {
             let mut write_guard = self.main.write().unwrap();
             let mut set = HashSet::new();
             set.insert(instance);
-            write_guard.insert(tag, RwLock::new(set));
+            write_guard.insert(tag, RwLock::new_with_flag_auto(set));
         }
     }
     pub(crate) fn remove_tag(&self, tag: String, instance: &WeakManagedInstance) {

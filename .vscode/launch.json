@@ -6,29 +6,23 @@
     "configurations": [
         {
             "type": "lldb",
-            "request": "custom",
+            "request": "launch",
             "name": "Debug & Run",
+            "program": "${workspaceFolder}/godot/godot.editor",
             "targetCreateCommands": [
                 "command source ${workspaceFolder}/commands.lldb",
-                "target create ${workspaceFolder}/godot/godot.editor"
+                "settings set -- target.run-args \"--headless\" \"--path\" \"./godot\""
             ],
-            "processCreateCommands": [
-                "settings set -- target.run-args \"--headless\" \"--path\" \"./godot\"",
-                "process launch"
-            ]
         },
         {
             "type": "lldb",
-            "request": "custom",
+            "request": "launch",
             "name": "Debug & Run Editor",
+            "program": "${workspaceFolder}/godot/godot.editor",
             "targetCreateCommands": [
                 "command source ${workspaceFolder}/commands.lldb",
-                "target create ${workspaceFolder}/godot/godot.editor"
+                "settings set -- target.run-args \"--path\" \"./godot\" \"--editor\""
             ],
-            "processCreateCommands": [
-                "settings set -- target.run-args \"--path\" \"./godot\" \"--editor\"",
-                "process launch"
-            ]
         },
     ]
 }

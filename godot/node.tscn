@@ -1,5 +1,28 @@
-[gd_scene format=3 uid="uid://g0eyndavpqug"]
+[gd_scene load_steps=2 format=3 uid="uid://g0eyndavpqug"]
+
+[ext_resource type="Script" path="res://node.gd" id="1_h2sua"]
 
 [node name="Node" type="Node"]
+script = ExtResource("1_h2sua")
 
 [node name="RobloxVM" type="RobloxVM" parent="."]
+startup_flags = {
+"CreatorId": 0,
+"CreatorType": 0,
+"DebugMode": true,
+"GameId": 0,
+"GameName": "RobloxToGodotProject - Test Project",
+"GlobalsReadonly": false,
+"IsClient": false,
+"IsStudio": false,
+"JobId": "",
+"MaxPhysicsStepsPerFrame": 8,
+"PlaceId": 0,
+"PlaceVersion": 1,
+"PrivateServerId": "reserved server",
+"PrivateServerOwnerId": 0,
+"SignalBehavior": 0,
+"TargetFPS": 60.0,
+"TargetPhysicsFPS": 60.0,
+"VSync": true
+}
