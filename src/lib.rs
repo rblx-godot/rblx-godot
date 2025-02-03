@@ -23,7 +23,7 @@ use core::verify_gdext_api_compat;
 pub use godot_vm_bindings::RobloxVMNode;
 
 use godot::prelude::*;
-use roblox_to_godot_project_derive::methods;
+use roblox_to_godot_project_derive::{instance, methods};
 use rustversion_detect::RUST_VERSION;
 
 #[cfg(debug_assertions)]
@@ -88,9 +88,9 @@ unsafe impl ExtensionLibrary for RobloxToGodotProjectExtension {
     }
 }
 
-#[roblox_to_godot_project_derive::instance(hierarchy=[ServiceProvider], no_clone, parent_locked)]
+#[instance(hierarchy=[crate::instance::ServiceProvider], no_clone, parent_locked)]
 #[method(func = fn some_func(), name = "SomeFunc", security_context = PluginSecurity)]
-#[method(func = fn another_func(_: String) -> usize, name = "AnotherFunc", security_context = PluginSecurity)]
+#[method(func = fn another_func(_: String) -> usize, name = "AnotherFunc", security_context = PluginSecurity, virtual)]
 struct TestInstance {
     #[property(name = "meow", readonly)]
     meow: u32,

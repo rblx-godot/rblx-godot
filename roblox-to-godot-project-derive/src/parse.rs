@@ -1,5 +1,5 @@
 use proc_macro2::Span;
-use syn::{braced, bracketed, meta::ParseNestedMeta, parenthesized, parse::{Parse, ParseStream}, punctuated::Punctuated, spanned::Spanned, token::{self, Brace, Bracket, Comma, Eq, Paren, Semi, Struct}, Attribute, Error, Field, Fields, Generics, Ident, ImplItemFn, LitBool, LitStr, Result, Signature, Token, Visibility, WhereClause};
+use syn::{braced, bracketed, meta::ParseNestedMeta, parenthesized, parse::{Parse, ParseStream}, punctuated::Punctuated, spanned::Spanned, token::{self, Brace, Bracket, Comma, Eq, Paren, Semi, Struct}, Attribute, Error, Expr, Field, Fields, Generics, Ident, ImplItemFn, LitBool, LitStr, Path, Result, Signature, Token, Visibility, WhereClause};
 
 #[derive(Debug)]
 pub enum SecurityContext {
@@ -13,10 +13,14 @@ pub enum SecurityContext {
 pub struct LuaPropertyData {
     pub name: String,
     pub readonly: bool,
-    pub get: Option<String>,
-    pub set: Option<String>,
+    pub get: Option<Path>,
+    pub set: Option<Path>,
     pub security_context: SecurityContext,
-    pub default: Option<syn::Expr>
+    pub default: Option<syn::Expr>,
+    pub not_replicated: bool,
+    pub transparent: bool,
+    pub rust_name: Ident,
+    pub span: Span
 }
 
 #[derive(Debug)]
@@ -145,7 +149,8 @@ pub enum InstanceConfigAttr {
     NoClone(bool, Option<Eq>, Span),
     ParentLocked(bool, Option<Eq>, Span),
     Hierarchy(Eq, Bracket, Punctuated<syn::Path, Token![,]>, Span),
-    CustomNew(bool, Option<Eq>, Span)
+    CustomNew(bool, Option<Eq>, Span),
+    RequiresInit(bool, Option<Eq>, Span)
 }
 
 macro_rules! bool_arg {
@@ -172,6 +177,7 @@ impl Parse for InstanceConfigAttr {
             "no_clone" => { return bool_arg!(input => NoClone | ident.span()) },
             "parent_locked" => { return bool_arg!(input => ParentLocked | ident.span()) },
             "custom_new" => { return bool_arg!(input => CustomNew | ident.span()) },
+            "requires_init" => { return bool_arg!(input => RequiresInit | ident.span()) },
             "hierarchy" => {
                 // this, will be a nightmare.
                 let equals = input.parse::<Token![=]>()?;
@@ -194,7 +200,8 @@ pub struct InstanceConfig {
     pub no_clone: bool,
     pub parent_locked: bool,
     pub hierarchy: Vec<syn::Path>,
-    pub custom_new: bool
+    pub custom_new: bool,
+    pub requires_init: bool
 }
 
 impl Parse for Instance {
@@ -223,6 +230,8 @@ impl Parse for Instance {
 fn search_attrs_field(mut field: Field) -> Result<InstanceContent> {
     let mut filtered: Vec<(usize, &Attribute)> = field.attrs.iter().enumerate().filter(|(_, a)| a.path().is_ident("property")).collect();
 
+    let field_name = field.ident.clone().unwrap();
+
     if filtered.is_empty() {
         return Ok(InstanceContent::RustField { rust_field: field })
     }
@@ -231,7 +240,7 @@ fn search_attrs_field(mut field: Field) -> Result<InstanceContent> {
         return Err(Error::new(field.span(), format!("`instance`: expected 1 `property` specifier, got {}", filtered.len())))
     } else {
         let (idx, attr) = filtered.pop().unwrap();
-        let (mut name, mut readonly, mut get, mut set, mut security_context, mut default) = (None, None, None, None, None, None);
+        let (mut name, mut readonly, mut get, mut set, mut security_context, mut default, mut not_replicated, mut transparent) = (None, None, None, None, None, None, None, None);
         if let Err(e) = attr.parse_nested_meta(|nested_meta| {
             let ident = nested_meta.path.require_ident()?;
             let ident = ident.to_string();
@@ -272,11 +281,7 @@ fn search_attrs_field(mut field: Field) -> Result<InstanceContent> {
                 },
                 "get" => {
                     if let None = get {
-                        let name: LitStr = nested_meta.value()?.parse()?;
-                        let name = name.value();
-                        if name.is_empty() {
-                            return Err(nested_meta.error("getter name cannot be empty"))?;
-                        }
+                        let name: Path = nested_meta.value()?.parse()?;
                         get = Some(name);
                     } else {
                         return Err(nested_meta.error("already specified"));
@@ -284,12 +289,32 @@ fn search_attrs_field(mut field: Field) -> Result<InstanceContent> {
                 },
                 "set" => {
                     if let None = set {
-                        let name: LitStr = nested_meta.value()?.parse()?;
-                        let name = name.value();
-                        if name.is_empty() {
-                            return Err(nested_meta.error("setter name cannot be empty"));
-                        }
+                        let name: Path = nested_meta.value()?.parse()?;
                         set = Some(name);
+                    } else {
+                        return Err(nested_meta.error("already specified"));
+                    }
+                },
+                "not_replicated" => {
+                    if let None = not_replicated {
+                        if let Ok(ts) = nested_meta.value() {
+                            let b: LitBool = ts.parse()?;
+                            not_replicated = Some(b.value());
+                        } else {
+                            not_replicated = Some(true);
+                        }
+                    } else {
+                        return Err(nested_meta.error("already specified"));
+                    }
+                },
+                "transparent" => {
+                    if let None = transparent {
+                        if let Ok(ts) = nested_meta.value() {
+                            let b: LitBool = ts.parse()?;
+                            transparent = Some(b.value());
+                        } else {
+                            transparent = Some(true);
+                        }
                     } else {
                         return Err(nested_meta.error("already specified"));
                     }
@@ -339,7 +364,11 @@ fn search_attrs_field(mut field: Field) -> Result<InstanceContent> {
             get,
             set,
             security_context: security_context.unwrap_or(SecurityContext::None),
-            default
+            default,
+            not_replicated: not_replicated.unwrap_or(false),
+            transparent: transparent.unwrap_or(false),
+            span: field.span(),
+            rust_name: field_name
         };
 
         field.attrs.remove(idx);

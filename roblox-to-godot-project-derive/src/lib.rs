@@ -26,6 +26,7 @@ pub fn instance(item: proc_macro::TokenStream, ts: proc_macro::TokenStream) -> p
     let mut parent_locked = None;
     let mut hierarchy: Option<Vec<syn::Path>> = None;
     let mut custom_new = None;
+    let mut requires_init = None;
 
     for ca in item {
         match ca {
@@ -37,6 +38,8 @@ pub fn instance(item: proc_macro::TokenStream, ts: proc_macro::TokenStream) -> p
             else { return error_cattr!(span, "`hierarchy` specified twice").into() },
             InstanceConfigAttr::CustomNew(b, _eq, span) => if custom_new.is_none() { custom_new = Some(b) }
                                                                     else { return error_cattr!(span, "`custom_new` specified twice").into() },
+            InstanceConfigAttr::RequiresInit(b, _eq, span) => if requires_init.is_none() { requires_init = Some(b) }
+            else { return error_cattr!(span, "`requires_init` specified twice").into() }
         }
     }
 
@@ -45,6 +48,7 @@ pub fn instance(item: proc_macro::TokenStream, ts: proc_macro::TokenStream) -> p
         parent_locked: parent_locked.unwrap_or(false),
         hierarchy: hierarchy.unwrap_or(vec![]),
         custom_new: custom_new.unwrap_or(false),
+        requires_init: requires_init.unwrap_or(false)
     };
     let ts1 = ts.clone(); // temporary
     let mut inst: Instance = parse_macro_input!(ts1);
@@ -70,7 +74,12 @@ pub fn instance(item: proc_macro::TokenStream, ts: proc_macro::TokenStream) -> p
     for i in inst.contents.named {
         match i {
             parse::InstanceContent::RustField { rust_field } => rust_fields.push(rust_field),
-            parse::InstanceContent::LuaField { lua_field, rust_field } => { lua_fields.push(lua_field); rust_fields.push(rust_field); },
+            parse::InstanceContent::LuaField { lua_field, rust_field } => {
+                if !lua_field.transparent {
+                    rust_fields.push(rust_field);
+                }
+                lua_fields.push(lua_field);
+            },
         }
     }
 
@@ -111,7 +120,7 @@ pub fn instance(item: proc_macro::TokenStream, ts: proc_macro::TokenStream) -> p
     let (cgn, cgmn) = (Ident::new(&component_get_name, ident.span()), Ident::new(&component_get_mut_name, ident.span()));
 
     let inherited_names: Vec<LitStr> = ic.hierarchy.iter().map(|i| {
-        LitStr::new(&i.require_ident().unwrap().to_string(), i.span())
+        LitStr::new(&i.segments.last().unwrap().ident.to_string(), i.span())
     }).collect();
 
     let inherited: Vec<syn::Path> = ic.hierarchy.into_iter().into_iter().map(|i| {
@@ -138,6 +147,51 @@ pub fn instance(item: proc_macro::TokenStream, ts: proc_macro::TokenStream) -> p
 
     let s = LitStr::new(&ident.to_string(), ident.span());
 
+    let iinstance_lua_get = {
+        let mut quotes: Vec<proc_macro2::TokenStream> = vec![];
+        for f in &lua_fields {
+            if f.transparent {
+                if let Some(get) = &f.get {
+                    let name = LitStr::new(&f.name, Span::call_site());
+                    quotes.push(quote! {
+                        #name => Some(lua_getter!(lua, #get(ptr, lua)))
+                    });
+                } else {
+                    return syn::Error::new(f.span, "has no getter despite being transparent").into_compile_error().into()
+                }
+            } else if let Some(get) = &f.get {
+                let name = LitStr::new(&f.name, Span::call_site());
+                quotes.push(quote! {
+                    #name => Some(lua_getter!(lua, #get(ptr, lua)))
+                });
+            } else {
+                let lua_name = LitStr::new(&f.name, Span::call_site());
+                let rust_name = &f.rust_name;
+
+                quotes.push(quote! {
+                    #lua_name => Some(lua_getter!(lua, self.#rust_name))
+                });
+            }
+        }
+
+        quotes
+    };
+
+    let iinstance_lua_set = {
+        let mut quotes: Vec<proc_macro2::TokenStream> = vec![];
+
+        for f in lua_fields {
+            if f.readonly {
+                let name = LitStr::new(&f.name, Span::call_site());
+                quotes.push(quote! {
+                    #name => Some(Err(r2g_mlua::prelude::LuaError::RuntimeError("Cannot set read only property.".into())))
+                });
+            }
+        }
+
+        quotes
+    };
+
     quote! {
         //static DEBUG: &str = #ls;
         static IC: &str = #moar;
@@ -148,8 +202,31 @@ pub fn instance(item: proc_macro::TokenStream, ts: proc_macro::TokenStream) -> p
         }
 
         impl crate::instance::IInstanceComponent for #component_name {
-            fn new(_ptr: instance::WeakManagedInstance, _class_name: &'static str) -> Self {
+            fn new(_ptr: crate::instance::WeakManagedInstance, _class_name: &'static str) -> Self {
                 todo!()
+            }
+
+            fn clone(self: &crate::core::RwLockReadGuard<'_, Self>, _: &r2g_mlua::Lua, _: &crate::instance::WeakManagedInstance) -> r2g_mlua::prelude::LuaResult<Self> {
+                Err(r2g_mlua::prelude::LuaError::RuntimeError("Cannot clone DataModelComponent".into()))
+            }
+
+            fn lua_get(self: &mut crate::core::RwLockReadGuard<'_, Self>, ptr: &crate::instance::DynInstance, lua: &r2g_mlua::Lua, key: &String) -> Option<r2g_mlua::prelude::LuaResult<r2g_mlua::prelude::LuaValue>> {
+                use crate::core::lua_macros::lua_getter;
+                use crate::core::inheritance_cast_to;
+                use crate::core::lua_macros::lua_invalid_argument;
+                use r2g_mlua::prelude::IntoLua;
+                match key.as_str() {
+                    #(#iinstance_lua_get),*,
+                    _ => None
+                }
+            }
+        
+            fn lua_set(self: &mut crate::core::RwLockWriteGuard<'_, Self>, _ptr: &crate::instance::DynInstance, _lua: &r2g_mlua::Lua, key: &String, _value: &r2g_mlua::prelude::LuaValue) -> Option<r2g_mlua::prelude::LuaResult<()>> {
+                use r2g_mlua::prelude::IntoLua;
+                match key.as_str() {
+                    #(#iinstance_lua_set),*,
+                    _ => None
+                }
             }
         }
         
@@ -185,13 +262,16 @@ pub fn instance(item: proc_macro::TokenStream, ts: proc_macro::TokenStream) -> p
                     //"ServiceProvider" => true,
                     "Instance" => true,
                     "Object" => true,
-                    #(#inherited_names => true),*
+                    #(#inherited_names => true),*,
                     #s => true,
                     _ => false
                 }
             }
             fn lua_get(&self, lua: &r2g_mlua::Lua, name: String) -> r2g_mlua::prelude::LuaResult<r2g_mlua::prelude::LuaValue> {
-                
+                use crate::instance::IInstanceComponent;
+                self.#snake_id.read().unwrap().lua_get(self, lua, &name)
+                    .or_else(|| self.service_provider.read().unwrap().lua_get(self, lua, &name))
+                    .unwrap_or_else(|| self.instance.read().unwrap().lua_get(lua, &name))
             }
             fn get_changed_signal(&self) -> crate::userdata::ManagedRBXScriptSignal {
                 use crate::instance::IInstance;
@@ -215,11 +295,45 @@ pub fn instance(item: proc_macro::TokenStream, ts: proc_macro::TokenStream) -> p
         }
 
         impl crate::instance::IInstance for #ident {
-
+            fn get_instance_component(&self) -> crate::core::RwLockReadGuard<crate::instance::InstanceComponent> {
+                self.instance.read().unwrap()
+            }
+        
+            fn get_instance_component_mut(&self) -> crate::core::RwLockWriteGuard<crate::instance::InstanceComponent> {
+                self.instance.write().unwrap()
+            }
+        
+            fn lua_set(&self, lua: &r2g_mlua::Lua, name: String, val: r2g_mlua::prelude::LuaValue) -> r2g_mlua::prelude::LuaResult<()> {
+                use crate::instance::IInstanceComponent;
+                self.#snake_id.write().unwrap().lua_set(self, lua, &name, &val)
+                    .or_else(|| self.service_provider.write().unwrap().lua_set(self, lua, &name, &val))
+                    .unwrap_or_else(|| self.instance.write().unwrap().lua_set(lua, &name, val))
+            }
+        
+            fn clone_instance(&self, _: &r2g_mlua::Lua) -> r2g_mlua::prelude::LuaResult<crate::instance::ManagedInstance> {
+                todo!()
+            }
         }
 
         impl crate::instance::IServiceProvider for #ident {
-
+            fn get_service_provider_component(&self) -> crate::core::RwLockReadGuard<crate::instance::ServiceProviderComponent> {
+                self.service_provider.read().unwrap()
+            }
+        
+            fn get_service_provider_component_mut(&self) -> crate::core::RwLockWriteGuard<crate::instance::ServiceProviderComponent> {
+                self.service_provider.write().unwrap()
+            }
+        
+            fn get_service(&self, service_name: String) -> r2g_mlua::prelude::LuaResult<crate::instance::ManagedInstance> {
+                self.find_service(service_name)
+                    .and_then(|x|
+                        x.ok_or_else(|| r2g_mlua::prelude::LuaError::RuntimeError("Service not found".into()))
+                    )
+            }
+        
+            fn find_service(&self, service_name: String) -> r2g_mlua::prelude::LuaResult<Option<crate::instance::ManagedInstance>> {
+                crate::instance::DynInstance::find_first_child_of_class(self, service_name)
+            }
         }
     }.into_token_stream().into()
 }
