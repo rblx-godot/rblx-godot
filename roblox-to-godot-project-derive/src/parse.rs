@@ -1,5 +1,5 @@
 use proc_macro2::Span;
-use syn::{braced, bracketed, meta::ParseNestedMeta, parenthesized, parse::{Parse, ParseStream}, punctuated::Punctuated, spanned::Spanned, token::{self, Brace, Bracket, Comma, Eq, Paren, Semi, Struct}, Attribute, Error, Expr, Field, Fields, Generics, Ident, ImplItemFn, LitBool, LitStr, Path, Result, Signature, Token, Visibility, WhereClause};
+use syn::{braced, bracketed, parse::{Parse, ParseStream}, punctuated::Punctuated, spanned::Spanned, token::{self, Brace, Bracket, Comma, Eq, Semi, Struct}, Attribute, Error, Field, Generics, Ident, LitBool, LitStr, Path, Result, Signature, Token, Visibility, WhereClause};
 
 #[derive(Debug)]
 pub enum SecurityContext {
@@ -16,7 +16,7 @@ pub struct LuaPropertyData {
     pub get: Option<Path>,
     pub set: Option<Path>,
     pub security_context: SecurityContext,
-    pub default: Option<syn::Expr>,
+    pub default: Option<Option<syn::Expr>>,
     pub not_replicated: bool,
     pub transparent: bool,
     pub rust_name: Ident,
@@ -130,6 +130,7 @@ pub enum InstanceContent {
 
 #[derive(Debug)]
 pub struct InstanceContents {
+    #[allow(unused)]
     pub brace_token: Brace,
     pub named: Punctuated<InstanceContent, Comma>,
 }
@@ -260,9 +261,13 @@ fn search_attrs_field(mut field: Field) -> Result<InstanceContent> {
                 },
                 "default" => {
                     if default.is_none() {
-                        let expr: syn::Expr = nested_meta.value()?.parse()?;
+                        if let Ok(v) = nested_meta.value() {
+                            let expr: syn::Expr = v.parse()?;
 
-                        default = Some(expr)
+                            default = Some(Some(expr));
+                        } else {
+                            default = Some(None);
+                        }
                     } else {
                         return Err(nested_meta.error("already specified"));
                     }

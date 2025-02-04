@@ -2,7 +2,7 @@ use convert_case::Casing;
 use parse::{parse_lua_fn_attr, Instance, InstanceConfig, InstanceConfigAttr, LuaFunctionData, LuaPropertyData};
 use proc_macro2::Span;
 use quote::{quote, ToTokens};
-use syn::{parse::Parser, parse_macro_input, punctuated::Punctuated, spanned::Spanned, Error, Field, Ident, ImplItemFn, ItemImpl, LitStr, Path, PathSegment, Token, TraitBound, TypeParamBound, TypeTraitObject};
+use syn::{parse::Parser, parse_macro_input, punctuated::Punctuated, spanned::Spanned, Error, Field, Ident, ItemImpl, LitStr, Path, PathSegment, Token, TraitBound, TypeParamBound, TypeTraitObject};
 
 mod parse;
 
@@ -83,25 +83,6 @@ pub fn instance(item: proc_macro::TokenStream, ts: proc_macro::TokenStream) -> p
         }
     }
 
-    //let dbg = format!("{inst:?}");
-
-    //let ls = LitStr::new(&dbg, Span::call_site());
-
-    let tso = ts.clone();
-    let code = format!("{tso}");
-
-    let code = LitStr::new(&code, Span::call_site());
-
-    let moar_code = format!("{ic:?}");
-
-    let moar = LitStr::new(&moar_code, Span::call_site());
-
-    let lua_fns = format!("{lua_fns:?}");
-
-    let lua_fns = LitStr::new(&lua_fns, Span::call_site());
-
-    let ts: proc_macro2::TokenStream = ts.into();
-
     let (attr, vis, struct_token, gens, ident) = (inst.attrs, inst.vis, inst.struct_token, inst.generics, inst.ident);
 
     let component_name = Ident::new(&(ident.to_string() + "Component"), ident.span());
@@ -147,7 +128,7 @@ pub fn instance(item: proc_macro::TokenStream, ts: proc_macro::TokenStream) -> p
 
     let s = LitStr::new(&ident.to_string(), ident.span());
 
-    let iinstance_lua_get = {
+    let iinstance_lua_get = { // todo: add more features (e.g. security enforcement)
         let mut quotes: Vec<proc_macro2::TokenStream> = vec![];
         for f in &lua_fields {
             if f.transparent {
@@ -177,7 +158,30 @@ pub fn instance(item: proc_macro::TokenStream, ts: proc_macro::TokenStream) -> p
         quotes
     };
 
-    let iinstance_lua_set = {
+    let field_news = { // todo: finish this
+        let mut quotes: Vec<proc_macro2::TokenStream> = vec![];
+
+        for f in &lua_fields {
+            if let Some(s) = &f.default {
+                let n = &f.rust_name;
+                if let Some(s) = s {
+                    quotes.push(quote! {
+                        #n: #s
+                    });
+                } else {
+                    quotes.push(quote! {
+                        #n: Default::default()
+                    });
+                }
+            } else {
+                return syn::Error::new(f.span, "default impl required for field (use Option if you don't have one)").into_compile_error().into();
+            }
+        }
+
+        quotes
+    };
+
+    let iinstance_lua_set = { // todo: add more features (e.g. security enforcement)
         let mut quotes: Vec<proc_macro2::TokenStream> = vec![];
 
         for f in lua_fields {
@@ -203,7 +207,7 @@ pub fn instance(item: proc_macro::TokenStream, ts: proc_macro::TokenStream) -> p
 
         impl crate::instance::IInstanceComponent for #component_name {
             fn new(_ptr: crate::instance::WeakManagedInstance, _class_name: &'static str) -> Self {
-                todo!()
+                todo!("implement `new` *cleanly*. somehow. who knows how. cuz rust fields idk how to implement default/new for them here (lua fields are handled)")
             }
 
             fn clone(self: &crate::core::RwLockReadGuard<'_, Self>, _: &r2g_mlua::Lua, _: &crate::instance::WeakManagedInstance) -> r2g_mlua::prelude::LuaResult<Self> {
@@ -311,7 +315,7 @@ pub fn instance(item: proc_macro::TokenStream, ts: proc_macro::TokenStream) -> p
             }
         
             fn clone_instance(&self, _: &r2g_mlua::Lua) -> r2g_mlua::prelude::LuaResult<crate::instance::ManagedInstance> {
-                todo!()
+                todo!("implement this cleanly too (same issue applies, but if no_clone this is optional)")
             }
         }
 
