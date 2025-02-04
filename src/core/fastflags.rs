@@ -2,7 +2,7 @@ use std::{cell::UnsafeCell, mem::{transmute, variant_count, ManuallyDrop, MaybeU
 
 use bevy_reflect::{Reflect, TypeInfo};
 
-use super::{LuauState, RobloxVM, RwLock};
+use super::{LuauState, RblxVM, RwLock};
 
 #[derive(Reflect, Clone, Copy, PartialEq, Eq, Debug, Hash)]
 #[repr(u16)]
@@ -195,14 +195,14 @@ pub enum FastFlagValue {
 
 pub struct FastFlags {
     flags: UnsafeCell<FlagsInternal>,
-    vm: *mut RwLock<RobloxVM>
+    vm: *mut RwLock<RblxVM>
 }
 
 unsafe impl Send for FastFlags {}
 unsafe impl Sync for FastFlags {}
 
 impl FastFlags {
-    pub(in crate::core) fn new(vm: *mut RwLock<RobloxVM>) -> FastFlags {
+    pub(in crate::core) fn new(vm: *mut RwLock<RblxVM>) -> FastFlags {
         let mut flags = MaybeUninit::<FlagsInternal>::uninit();
         unsafe {
             flags.assume_init_mut()
@@ -218,7 +218,7 @@ impl FastFlags {
         }
     }
     #[inline]
-    pub const fn from_vm(vm: *mut RwLock<RobloxVM>) -> &'static FastFlags {
+    pub const fn from_vm(vm: *mut RwLock<RblxVM>) -> &'static FastFlags {
         unsafe {
             vm.as_ref().unwrap_unchecked().access().as_ref().unwrap_unchecked().flags()
         }

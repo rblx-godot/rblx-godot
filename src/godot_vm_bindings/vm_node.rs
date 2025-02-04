@@ -1,17 +1,17 @@
 use std::{collections::HashMap, mem::transmute};
 
 use bevy_reflect::Typed;
-use godot::{classes::Engine, global::Error, prelude::*};
+use godot::{classes::{node::InternalMode, Engine, FileAccess, RichTextLabel}, global::Error, prelude::*};
 
-use crate::core::{borrowck_ignore_mut, get_state, FastFlag, FastFlagValue, GlobalTaskScheduler, ParallelDispatch::Synchronized, RobloxVM, RwLock, ThreadIdentity, ThreadIdentityType};
+use crate::{core::{borrowck_ignore_mut, get_state, FastFlag, FastFlagValue, GlobalTaskScheduler, ParallelDispatch::Synchronized, RblxVM, RwLock, ThreadIdentity, ThreadIdentityType}, instance::escape_bbcode_and_format};
 
-/// The RobloxVM node, holding either a client or a server state, depending on the startup flags.
+/// The RblxVM node, holding either a client or a server state, depending on the startup flags.
 /// 
 /// [b]Note:[/b] This object is not thread-safe. It should from only a single thread.
 #[derive(GodotClass)]
-#[class(base=Node,rename=RobloxVM)]
-pub struct RobloxVMNode {
-    vm: Option<Box<RwLock<RobloxVM>>>,
+#[class(base=Node,rename=RblxVM)]
+pub struct RblxVMNode {
+    vm: Option<Box<RwLock<RblxVM>>>,
     /// The fast flags loaded on startup.
     /// [b]Note:[/b] This is only loaded on startup! At runtime, you have to use the [method set_fast_flag_async] and [method get_fast_flag] methods.
     #[export]
@@ -21,7 +21,7 @@ pub struct RobloxVMNode {
 }
 
 #[godot_api]
-impl INode for RobloxVMNode {
+impl INode for RblxVMNode {
     fn init(owner: Base<Node>) -> Self {
         let mut dict = Dictionary::default();
         for (flag, name) in FastFlag::type_info().as_enum().unwrap().variant_names().iter().enumerate() {
@@ -32,7 +32,7 @@ impl INode for RobloxVMNode {
                 FastFlagValue::String(v) => v.to_variant(),
             });
         }
-        RobloxVMNode {
+        RblxVMNode {
             vm: None,
             startup_flags: dict,
             base: owner,
@@ -68,25 +68,63 @@ impl INode for RobloxVMNode {
                 }
                 Ok(())
             })() {
-                godot_error!("RobloxVMNode: {}", e);
+                godot_error!("RblxVMNode: {}", e);
             }
         }
         
-        self.vm = Some(RobloxVM::new(Some(flags_table)));
+        self.vm = Some(RblxVM::new(Some(flags_table)));
+        self.post_init();
     }
 
     fn process(&mut self, delta: f64) {
         if let Some(vm) = self.vm.as_mut() {
             let write = vm.write()
-                .inspect_err(|_| godot_error!("RobloxVMNode: failed to acquire write lock on RobloxVM"))
+                .inspect_err(|_| godot_error!("RblxVMNode: failed to acquire write lock on RblxVM"))
                 .unwrap();
             GlobalTaskScheduler::frame_step(write, delta).unwrap();
         }
     }
 }
 
+impl RblxVMNode {
+    fn post_init(&mut self) {
+        let scene = load::<PackedScene>("res://addons/rblx-godot/ConsoleInterface.tscn");
+        let loaded_scene = scene.instantiate().unwrap();
+
+        self.base_mut().add_child_ex(&loaded_scene)
+            .internal(InternalMode::FRONT)
+            .done();
+
+        let mut log_window = self.base_mut().get_node_as::<RichTextLabel>("ConsoleInterface/ConsoleInterface/PanelContainer/RichTextLabel");
+        
+        let vm = self.vm.as_ref().unwrap();
+        let read = vm.read()
+            .inspect_err(|_| godot_error!("RblxVMNode: failed to acquire write lock on RblxVM"))
+            .map_err(|_| Error::ERR_CANT_ACQUIRE_RESOURCE)
+            .unwrap();
+
+        let add_callable = log_window.callable("append_text");
+
+        let clear_callable = log_window.callable("clear");
+        read.get_log_service().add_hook(move |str| {
+            if let Some((msg, msg_type, _)) = str {
+                add_callable.call_deferred(&[escape_bbcode_and_format(msg, msg_type).to_variant()]);
+                add_callable.call_deferred(&["\n".to_variant()]);
+            } else {
+                clear_callable.call_deferred(&[]);
+            }
+        });
+
+        // Read current log file from godot.
+        let log_content = FileAccess::get_file_as_string("user://logs/godot.log");
+
+        log_window.append_text(&log_content);
+        log_window.append_text(include_str!("startup_message.rtf"));
+    }
+}
+
 #[godot_api]
-impl RobloxVMNode {
+impl RblxVMNode {
     /// Sets a fast flag to a new value asynchronously, returns an error if the flag name is invalid.
     /// [b]Note:[/b] If provided an invalid type, it will panic inside the task scheduler.
     #[func]
@@ -102,10 +140,10 @@ impl RobloxVMNode {
         (|| {
             if let Some(vm) = self.vm.as_ref() {
                 let mut write = vm.write()
-                    .inspect_err(|_| godot_error!("RobloxVMNode: failed to acquire write lock on RobloxVM"))
+                    .inspect_err(|_| godot_error!("RblxVMNode: failed to acquire write lock on RblxVM"))
                     .map_err(|_| Error::ERR_CANT_ACQUIRE_RESOURCE)?;
                 let fastflag_id = *variants.get(flag.to_string().as_str()).ok_or(Error::ERR_INVALID_PARAMETER)
-                    .inspect_err(|_| godot_error!("RobloxVMNode: invalid flag name provided"))? as u16;
+                    .inspect_err(|_| godot_error!("RblxVMNode: invalid flag name provided"))? as u16;
                 let fastflag_id = unsafe {transmute(fastflag_id)};
                 let fastflag_value: FastFlagValue = match value.get_type() {
                     VariantType::BOOL => FastFlagValue::Bool(value.to::<bool>()),
@@ -127,7 +165,7 @@ impl RobloxVMNode {
                 unsafe { vm.access().as_mut().unwrap_unchecked() }.get_main_state()
                     .get_task_scheduler_mut()
                     .defer_func(lua, func, (), Synchronized)
-                    .inspect_err(|_| godot_error!("RobloxVMNode: failed to defer on task scheduler"))
+                    .inspect_err(|_| godot_error!("RblxVMNode: failed to defer on task scheduler"))
                     .map_err(|_| Error::FAILED)?;
             }
             Ok(Error::OK)
@@ -147,10 +185,10 @@ impl RobloxVMNode {
         (|| {
             if let Some(vm) = self.vm.as_ref() {
                 let read = vm.read()
-                    .inspect_err(|_| godot_error!("RobloxVMNode: failed to acquire read lock on RobloxVM"))
+                    .inspect_err(|_| godot_error!("RblxVMNode: failed to acquire read lock on RblxVM"))
                     .map_err(|_| Variant::nil())?;
                 let fastflag_id = *variants.get(flag.to_string().as_str()).ok_or_else(|| Variant::nil())
-                    .inspect_err(|_| godot_error!("RobloxVMNode: invalid flag name provided"))? as u16;
+                    .inspect_err(|_| godot_error!("RblxVMNode: invalid flag name provided"))? as u16;
                 let fastflag_id = unsafe {transmute(fastflag_id)};
                 Ok(match read.flags().get_flag_value(fastflag_id) {
                     FastFlagValue::Bool(v) => v.to_variant(),
@@ -159,7 +197,7 @@ impl RobloxVMNode {
                     FastFlagValue::String(v) => v.to_variant(),
                 })
             } else {
-                godot_error!("RobloxVMNode: RobloxVM not initialized");
+                godot_error!("RblxVMNode: RblxVM not initialized");
                 Err(Variant::nil())
             }
         })().unwrap_or_else(|e| e)
@@ -169,7 +207,7 @@ impl RobloxVMNode {
     fn push_code(&mut self, chunk: GString) -> Error {
         self.vm.as_mut().map(|vm| {
             let mut write = vm.write()
-                .inspect_err(|_| godot_error!("RobloxVMNode: failed to acquire write lock on RobloxVM"))
+                .inspect_err(|_| godot_error!("RblxVMNode: failed to acquire write lock on RblxVM"))
                 .map_err(|_| Error::ERR_CANT_ACQUIRE_RESOURCE)
                 .unwrap();
             let state = write.get_main_state();
@@ -178,7 +216,7 @@ impl RobloxVMNode {
             let lua = unsafe {(&raw const *state.get_lua()).as_ref().unwrap_unchecked()};
             let thr = unsafe { borrowck_ignore_mut(state) }.get_task_scheduler_mut()
                 .defer_func(lua, func, (), Synchronized)
-                .inspect_err(|_| godot_error!("RobloxVMNode: failed to defer on task scheduler"))
+                .inspect_err(|_| godot_error!("RblxVMNode: failed to defer on task scheduler"))
                 .unwrap();
             state.set_thread_identity(thr, ThreadIdentity {
                 security_identity: ThreadIdentityType::UserInit,

@@ -2,18 +2,20 @@ use std::mem::MaybeUninit;
 use std::{collections::HashMap, ffi::c_void, mem::transmute, ptr::addr_of_mut};
 use std::ptr::null_mut;
 
-use godot::global::godot_print;
 use r2g_mlua::{prelude::*, ChunkMode, Compiler};
+use super::lua_macros::args_to_string;
 use super::scheduler::ITaskScheduler;
 use super::ParallelDispatch::{Default, Synchronized};
-use super::{borrowck_ignore, FastFlag, FastFlags, RwLock, RwLockReadGuard, RwLockWriteGuard, TaskScheduler, Trc};
-use super::{security::ThreadIdentityType, vm::RobloxVM};
-use crate::instance::{IModuleScript, ManagedInstance, WeakManagedActor, WeakManagedInstance};
+use super::{borrowck_ignore, FastFlag, FastFlags, Irc, RwLock, RwLockReadGuard, RwLockWriteGuard, TaskScheduler, Trc};
+use super::{security::ThreadIdentityType, vm::RblxVM};
+use crate::instance::{DataModel, DynInstance, IModuleScript, LogService, ManagedInstance, WeakManagedActor, WeakManagedInstance};
 use crate::userdata::register_userdata_singletons;
 
 pub mod registry_keys {
     pub const VM_REGISTRYKEY: &'static str = "__vm__";
     pub const STATE_REGISTRYKEY: &'static str = "__state__";
+    pub const LOG_SERVICE_REGISTRYKEY: &'static str = "__log_service__";
+    pub const DATA_MODEL_REGISTRYKEY: &'static str = "__data_model__";
     pub(super) const TASK_PUSH_WAIT: &'static str = "__task_push_wait__";
     pub(super) const TASK_PUSH_SYNC_DESYNC: &'static str = "__task_push_sync_desync__";
     pub const ACTOR_REGISTRYKEY: &'static str = "__actor__";
@@ -25,16 +27,16 @@ pub struct ThreadIdentity {
 }
 #[derive(Debug)]
 pub struct LuauState {
-    vm: *mut RwLock<RobloxVM>,
+    vm: *mut RwLock<RblxVM>,
     lua: Lua,
     threads: HashMap<*const c_void, ThreadIdentity>,
     task: MaybeUninit<Box<dyn ITaskScheduler>>,
     actor: Option<WeakManagedActor>,
 }
 impl LuauState {
-    fn get_vm_from_lua(lua: &Lua) -> &RwLock<RobloxVM> {
+    fn get_vm_from_lua(lua: &Lua) -> &RwLock<RblxVM> {
         unsafe {
-            let ptr: *mut RwLock<RobloxVM> = transmute(
+            let ptr: *mut RwLock<RblxVM> = transmute(
                 lua.named_registry_value::<LuaLightUserData>(registry_keys::VM_REGISTRYKEY)
                 .unwrap_unchecked().0
             );
@@ -54,14 +56,14 @@ impl LuauState {
         }
         match event {
             LuaThreadEventInfo::Created(parent) => {
-                godot_print!("[thread_events] new thread created: thread: 0x{:x} by thread: 0x{:x}",lua.current_thread().to_pointer() as isize,parent.to_pointer() as isize);
+                state.get_log_service().log_message(lua, format!("[thread_events] new thread created: thread: 0x{:x} by thread: 0x{:x}",lua.current_thread().to_pointer() as isize,parent.to_pointer() as isize));
                 let iden = state.threads.get(&parent.to_pointer());
                 if iden.is_some() {
                     state.threads.insert(lua.current_thread().to_pointer(), iden.unwrap().clone());
                 }
             }
             LuaThreadEventInfo::Destroyed(thread_ptr) => {
-                godot_print!("[thread_events] thread destroyed: thread: 0x{:x}",thread_ptr as isize);
+                state.get_log_service().log_message(lua, format!("[thread_events] thread destroyed: thread: 0x{:x}",thread_ptr as isize));
                 state.threads.remove(&thread_ptr);
             }
         }
@@ -85,18 +87,20 @@ impl LuauState {
     pub fn set_thread_identity(&mut self, thread: LuaThread, identity: ThreadIdentity) {
         self.threads.insert(thread.to_pointer().cast(), identity);
     }
+    pub(super) unsafe fn bind_services(&mut self) {
+        self.lua.set_named_registry_value(registry_keys::LOG_SERVICE_REGISTRYKEY, self.vm.as_ref().unwrap_unchecked().read().unwrap().get_log_service().cast_from_sized::<DynInstance>().unwrap()).unwrap();
+    }
     unsafe fn register_globals(&mut self) {
         self.lua.globals().raw_set("print", self.lua.create_function(|lua, args: LuaMultiValue| {
-            let vm = Self::get_vm_from_lua(lua);
-            vm.read().unwrap().log_message(args);
+            get_state(lua).get_log_service().log_message(lua, args_to_string(args, "\t"));
             Ok(())
         }).unwrap()).unwrap();
         self.lua.globals().raw_set("warn", self.lua.create_function(|lua, args: LuaMultiValue| {
-            let vm = Self::get_vm_from_lua(lua);
-            vm.read().unwrap().log_warn(args);
+            get_state(lua).get_log_service().log_warn(lua, args_to_string(args, "\t"));
             Ok(())
         }).unwrap()).unwrap();
-        self.lua.globals().raw_set("game", self.vm.as_ref().unwrap_unchecked().read().unwrap().get_game_instance()).unwrap();
+        self.lua.globals().raw_set("game", self.vm.as_ref().unwrap_unchecked().read().unwrap().get_game_instance().cast_from_sized::<DynInstance>().unwrap()).unwrap();
+        self.lua.set_named_registry_value(registry_keys::DATA_MODEL_REGISTRYKEY, self.vm.as_ref().unwrap_unchecked().read().unwrap().get_game_instance().cast_from_sized::<DynInstance>().unwrap()).unwrap();
         // Task scheduler registration
         {
             type DynTaskScheduler = dyn ITaskScheduler;
@@ -170,13 +174,13 @@ impl LuauState {
         self.lua.set_thread_event_callback(Self::thread_event_callback);
         self.lua.gc_stop();
     }
-    pub(super) unsafe fn init(&mut self, ptr: *mut RwLock<RobloxVM>, task: Box<dyn ITaskScheduler>) {
+    pub(super) unsafe fn init(&mut self, ptr: *mut RwLock<RblxVM>, task: Box<dyn ITaskScheduler>) {
         self.vm = ptr;
         self.task = MaybeUninit::new(task);
         self._init();
     }
     #[doc(hidden)]
-    pub(super) fn new(ptr: *mut RwLock<RobloxVM>) -> LuauState {
+    pub(super) fn new(ptr: *mut RwLock<RblxVM>) -> LuauState {
         let mut state = LuauState {
             vm: ptr,
             lua: Lua::new(),
@@ -196,12 +200,12 @@ impl LuauState {
             actor: None
         }
     }
-    pub fn get_vm(&self) -> RwLockReadGuard<RobloxVM> {
+    pub fn get_vm(&self) -> RwLockReadGuard<RblxVM> {
         unsafe {
             self.vm.as_ref().unwrap_unchecked().read().unwrap()
         }
     }
-    pub fn get_vm_mut(&self) -> RwLockWriteGuard<RobloxVM> {
+    pub fn get_vm_mut(&self) -> RwLockWriteGuard<RblxVM> {
         unsafe {
             self.vm.as_ref().unwrap_unchecked().write().unwrap()
         }
@@ -304,13 +308,19 @@ impl LuauState {
         self.lua.gc_step_kbytes(kb).unwrap();
         self.lua.gc_stop();
     }
-    /// Gets the RobloxVM pointer. This is thread-safe even with `.access()`.
+    /// Gets the RblxVM pointer. This is thread-safe even with `.access()`.
     #[inline(always)]
-    pub(super) const fn get_vm_ptr(&self) -> *mut RwLock<RobloxVM> {
+    pub(super) const fn get_vm_ptr(&self) -> *mut RwLock<RblxVM> {
         self.vm
     }
     pub(crate) fn set_actor(&mut self, actor: WeakManagedActor) {
         self.actor = Some(actor);
+    }
+    pub fn get_log_service(&self) -> Irc<LogService> {
+        self.lua.named_registry_value::<ManagedInstance>(registry_keys::LOG_SERVICE_REGISTRYKEY).unwrap().cast_from_unsized::<LogService>().unwrap()
+    }
+    pub fn get_data_model(&self) -> Irc<DataModel> {
+        self.lua.named_registry_value::<ManagedInstance>(registry_keys::DATA_MODEL_REGISTRYKEY).unwrap().cast_from_unsized::<DataModel>().unwrap()
     }
 }
 

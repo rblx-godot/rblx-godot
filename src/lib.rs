@@ -20,7 +20,7 @@ mod godot_vm_bindings;
 
 use core::verify_gdext_api_compat;
 
-pub use godot_vm_bindings::RobloxVMNode;
+pub use godot_vm_bindings::RblxVMNode;
 
 use godot::prelude::*;
 use rustversion_detect::RUST_VERSION;
@@ -74,7 +74,7 @@ unsafe impl ExtensionLibrary for RblxGodotExtension {
                     authors.replace(":", ", ")
                 });
                 /*
-                let mut roblox_vm = RobloxVM::new(None);
+                let mut roblox_vm = RblxVM::new(None);
                 let env = roblox_vm.get_mut().get_main_state().create_env_from_global().unwrap();
                 roblox_vm.get_mut()
                     .get_main_state()

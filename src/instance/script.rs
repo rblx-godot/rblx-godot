@@ -7,10 +7,10 @@ use crate::core::lua_macros::{lua_getter, lua_setter};
 use crate::core::ParallelDispatch::Synchronized;
 use crate::instance::{IObject, IInstance, DynInstance, ManagedInstance, InstanceComponent, IInstanceComponent, WeakManagedInstance};
 use crate::userdata::enums::RunContext;
-use crate::userdata::{ManagedRBXScriptSignal, RBXScriptConnection};
+use crate::userdata::{ManagedRBXScriptSignal, RBXScriptConnection}; 
 use crate::core::{borrowck_ignore, borrowck_ignore_mut, get_current_identity, get_state, get_task_scheduler_from_lua, inheritance_cast_to, FastFlag, InheritanceBase, InheritanceTableBuilder, Irc, LuauState, RwLock, RwLockReadGuard, RwLockWriteGuard, SecurityContext, Trc};
 
-use super::{Actor, ManagedActor, WeakManagedActor};
+use super::{ManagedActor, WeakManagedActor};
 #[derive(Debug)]
 enum ActorLuauState {
     Main(Trc<LuauState>),
@@ -55,19 +55,10 @@ impl BaseScriptComponent {
             func = f.inspect_err(|x|
                 match x {
                     LuaError::RuntimeError(err) =>
-                    state.get_vm().log_err(IntoLuaMulti::into_lua_multi(
-                        format!("Error occured while setting up script {}: {}", script.get_full_name().unwrap(), err),
-                        lua
-                    ).unwrap()),
+                    state.get_log_service().log_err(lua, format!("Error occured while setting up script {}: {}", script.get_full_name().unwrap(), err)),
                     LuaError::SyntaxError { message, .. } =>
-                        state.get_vm().log_err(IntoLuaMulti::into_lua_multi(
-                            format!("Error occured while compiling script {}: {}", script.get_full_name().unwrap(), message),
-                            lua
-                        ).unwrap()),
-                    x => state.get_vm().log_err(IntoLuaMulti::into_lua_multi(
-                        format!("Unknown error while compiling script {}: {:?}", script.get_full_name().unwrap(), x),
-                        lua
-                    ).unwrap()),
+                        state.get_log_service().log_err(lua, format!("Error occured while compiling script {}: {}", script.get_full_name().unwrap(), message)),
+                    x => state.get_log_service().log_err(lua, format!("Unknown error while compiling script {}: {:?}", script.get_full_name().unwrap(), x)),
                 }
             )?;
         }
@@ -708,10 +699,9 @@ impl dyn IModuleScript {
         let thread = lua.create_thread(func)?;
         let result = thread.resume::<LuaMultiValue>(());
         if let Err(err) = result {
-            get_state(lua).get_vm().log_err(IntoLuaMulti::into_lua_multi(
-                format!("Error occured while requiring module script {}: {:?}", component._self_ptr.upgrade().unwrap().get_full_name().unwrap(), err),
-                lua
-            ).unwrap());
+            get_state(lua).get_log_service().log_err(lua,
+                format!("Error occured while requiring module script {}: {:?}", component._self_ptr.upgrade().unwrap().get_full_name().unwrap(), err)
+            );
             return Err(err);
         }
         let res;

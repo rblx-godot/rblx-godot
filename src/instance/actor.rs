@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use super::{pvinstance::IPVInstance, DynInstance, IInstance, IInstanceComponent, IModel, IObject, InstanceComponent, ManagedInstance, ModelComponent, PVInstanceComponent};
-use crate::{core::{get_state_with_rwlock, lua_macros::{lua_getter, lua_invalid_argument}, IWeak, InheritanceBase, InheritanceTableBuilder, Irc, LuauState, ParallelDispatch::{Desynchronized, Synchronized}, RobloxVM, RwLock, RwLockReadGuard, RwLockWriteGuard, Trc}, userdata::{ManagedRBXScriptSignal, RBXScriptConnection, RBXScriptSignal}};
+use crate::{core::{get_state_with_rwlock, lua_macros::{lua_getter, lua_invalid_argument}, IWeak, InheritanceBase, InheritanceTableBuilder, Irc, LuauState, ParallelDispatch::{Desynchronized, Synchronized}, RblxVM, RwLock, RwLockReadGuard, RwLockWriteGuard, Trc}, userdata::{ManagedRBXScriptSignal, RBXScriptConnection, RBXScriptSignal}};
 use r2g_mlua::prelude::*;
 
 pub type ManagedActor = Irc<Actor>;
@@ -130,7 +130,7 @@ impl IModel for Actor {
 }
 
 impl Actor {
-    pub fn new(mut vm: RwLockWriteGuard<'_, RobloxVM>) -> ManagedInstance {
+    pub fn new(mut vm: RwLockWriteGuard<'_, RblxVM>) -> ManagedInstance {
         let actor: Irc<DynInstance> = Irc::new_cyclic(|x|
             Actor {
                 instance: RwLock::new_with_flag_auto(InstanceComponent::new(x.cast_to_instance(), "Actor")),

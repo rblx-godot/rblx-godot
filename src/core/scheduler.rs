@@ -3,7 +3,7 @@ use std::{ffi::c_int, mem::take, ptr::slice_from_raw_parts};
 use r2g_mlua::{ffi::{self, luaL_checknumber, lua_State, lua_gettop, lua_pushnumber, lua_remove, lua_resume, lua_settop, lua_tothread, lua_type, lua_typename, lua_xmove, lua_yield, LUA_ERRRUN}, prelude::*};
 use crate::instance::WeakManagedInstance;
 
-use super::{borrowck_ignore_mut, get_state, get_thread_identity, registry_keys, RobloxVM, RwLockWriteGuard};
+use super::{borrowck_ignore_mut, get_state, get_thread_identity, RblxVM, RwLockWriteGuard};
 
 #[derive(Debug)]
 pub struct TaskScheduler {
@@ -192,8 +192,9 @@ impl dyn ITaskScheduler {
                         let string_slice= 
                             slice_from_raw_parts(ffi::lua_tolstring(lua_raw, -1, &raw mut len).cast(), len).as_ref().unwrap();
                         let string = std::str::from_utf8(string_slice).unwrap();
-                        get_state(lua).get_vm().log_err(
-                            IntoLuaMulti::into_lua_multi(format!("Error in thread 0x{:x} during defer: {}", thread as usize, string), lua).unwrap()
+                        get_state(lua).get_vm().get_log_service().log_err(
+                            lua,
+                            format!("Error in thread 0x{:x} during defer: {}", thread as usize, string)
                         );
                     }
                     lua_settop(lua_raw, 0);
@@ -259,8 +260,9 @@ impl dyn ITaskScheduler {
                                 let string_slice= 
                                     slice_from_raw_parts(ffi::lua_tolstring(lua_raw, -1, &raw mut len).cast(), len).as_ref().unwrap();
                                 let string = std::str::from_utf8(string_slice).unwrap();
-                                get_state(lua).get_vm().log_err(
-                                    IntoLuaMulti::into_lua_multi(format!("Error in thread 0x{:x} during wait: {}", thread as usize, string), lua).unwrap()
+                                get_state(lua).get_vm().get_log_service().log_err(
+                                    lua,
+                                    format!("Error in thread 0x{:x} during wait: {}", thread as usize, string)
                                 );
                             }
                             lua_settop(lua_raw, 0);
@@ -374,7 +376,7 @@ impl dyn ITaskScheduler {
         }
     }
     pub(super) unsafe extern "C-unwind" fn wait(state: *mut lua_State) -> c_int {
-        let time = luaL_checknumber(state, 1);
+        let _time = luaL_checknumber(state, 1);
         ffi::lua_rawgetfield(state, ffi::LUA_REGISTRYINDEX, c"__task_push_wait__".as_ptr());
         ffi::lua_insert(state, 1);
         ffi::lua_call(state, 1, 0);
@@ -394,7 +396,7 @@ impl GlobalTaskScheduler {
     pub fn as_dyn_mut(&mut self) -> &mut dyn ITaskScheduler {
         unsafe { &mut *((&raw mut self.task) as *mut dyn ITaskScheduler) }
     }
-    pub fn frame_step(mut vm: RwLockWriteGuard<RobloxVM>, _: f64) -> LuaResult<()> {
+    pub fn frame_step(mut vm: RwLockWriteGuard<RblxVM>, _: f64) -> LuaResult<()> {
         
         // SAFETY: This function avoids the borrow checker since the main state outlives global task scheduler.
         let main_state = unsafe { borrowck_ignore_mut(vm.get_main_state()) };

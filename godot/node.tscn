@@ -5,7 +5,7 @@
 [node name="Node" type="Node"]
 script = ExtResource("1_h2sua")
 
-[node name="RobloxVM" type="RobloxVM" parent="."]
+[node name="RblxVM" type="RblxVM" parent="."]
 startup_flags = {
 "CreatorId": 0,
 "CreatorType": 0,

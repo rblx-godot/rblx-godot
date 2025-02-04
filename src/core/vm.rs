@@ -4,26 +4,23 @@ use std::mem::MaybeUninit;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::Arc;
-use std::thread::panicking;
 use std::marker::PhantomPinned;
 
-use godot::global::godot_print_rich;
-use godot::{builtin::Variant, global::{godot_print, print_rich, printt}, meta::ToGodot};
 use r2g_mlua::prelude::*;
 
 use crate::core::scheduler::GlobalTaskScheduler;
-use crate::instance::{DataModel, ManagedInstance, WeakManagedActor};
+use crate::instance::{DataModel, IDataModel, LogService, RunService, WeakManagedActor};
 
 use super::state::LuauState;
-use super::{FastFlag, FastFlagValue, FastFlags, InstanceReplicationTable, InstanceTagCollectionTable, RwLock, Trc, Watchdog, Weak, GLOBAL_LOCKS_OF_THREAD};
+use super::{FastFlag, FastFlagValue, FastFlags, InstanceReplicationTable, InstanceTagCollectionTable, Irc, RwLock, Trc, Watchdog, Weak, GLOBAL_LOCKS_OF_THREAD};
 
-pub struct RobloxVM {
+pub struct RblxVM {
     main_state: Trc<LuauState>,
     states: Vec<Weak<LuauState>>,
     instances: InstanceReplicationTable,
     instances_tag_collection: InstanceTagCollectionTable,
     flags: MaybeUninit<FastFlags>,
-    data_model: MaybeUninit<ManagedInstance>,
+    data_model: MaybeUninit<Irc<DataModel>>,
     global_lock: Arc<AtomicBool>,
 
     states_locks: HashMap<*mut LuauState, *const Trc<LuauState>>,
@@ -34,32 +31,10 @@ pub struct RobloxVM {
     _pin: PhantomPinned
 }
 
-pub(crate) fn args_to_variant(args: LuaMultiValue) -> Box<[Variant]> {
-    args
-        .into_iter()
-        .map(|x| {
-            x.to_string().unwrap_or("<unknown>".into()).as_str().to_variant()
-        })
-        .collect()
-}
-pub(crate) fn args_to_string(args: LuaMultiValue, delimiter: &str) -> String {
-    let mut iter = args
-        .into_iter()
-        .map(|x|
-            String::from(x.to_string().unwrap_or("<unknown>".into()))
-        );
-    let first = iter.next().unwrap_or(String::default());
-    iter.fold(first, |mut a, b| {
-            a.push_str(delimiter);
-            a.push_str(b.as_str());
-            a
-        })
-}
-
-impl RobloxVM {
-    pub fn new(flags_table: Option<Vec<(FastFlag, FastFlagValue)>>) -> Box<RwLock<RobloxVM>> {
+impl RblxVM {
+    pub fn new(flags_table: Option<Vec<(FastFlag, FastFlagValue)>>) -> Box<RwLock<RblxVM>> {
         unsafe {
-            let mut vm = Box::new(RwLock::new(RobloxVM {
+            let mut vm = Box::new(RwLock::new(RblxVM {
                 main_state: Trc::new(LuauState::new_uninit()),
                 states: Vec::new(),
                 states_locks: HashMap::new(),
@@ -84,36 +59,13 @@ impl RobloxVM {
             let main_state_ptr = vm.get_mut().main_state.access();
             let main_state_lock_ptr = &raw const vm.get_mut().main_state;
             vm.get_mut().states_locks.insert(main_state_ptr, main_state_lock_ptr);
-
+            
             vm.get_mut().main_state.access().as_mut().unwrap_unchecked().init(vm_ptr, Box::new(GlobalTaskScheduler::new()));
-            godot_print!("RobloxVM instance created.");
+            vm.access().as_ref().unwrap().data_model.assume_init_ref().init_services(vm.access().as_mut().unwrap().get_main_state().get_lua()).unwrap();
+            vm.get_mut().main_state.access().as_mut().unwrap_unchecked().bind_services();
+
             vm
         }
-    }
-    pub fn log_message(&self, args: LuaMultiValue) {
-        let v = args_to_variant(args);
-        printt(&v);
-    }
-    pub fn log_info(&self, args: LuaMultiValue) {
-        let mut string = args_to_string(args, "\t");
-        string = "[color=blue]".to_owned() + &string;
-        string = string + "[/color]";
-        let v: [Variant; 1] = [string.to_variant()];
-        print_rich(&v)
-    }
-    pub fn log_warn(&self, args: LuaMultiValue) {
-        let mut string = args_to_string(args, "\t");
-        string = "[color=yellow]".to_owned() + &string;
-        string = string + "[/color]";
-        let v: [Variant; 1] = [string.to_variant()];
-        print_rich(&v)
-    }
-    pub fn log_err(&self, args: LuaMultiValue) {
-        let mut string = args_to_string(args, "\t");
-        string = "[color=red]".to_owned() + &string;
-        string = string + "[/color]";
-        let v: [Variant; 1] = [string.to_variant()];
-        print_rich(&v)
     }
     pub fn get_main_state(&mut self) -> &mut LuauState {
         unsafe { &mut *self.main_state.access() }
@@ -172,7 +124,7 @@ impl RobloxVM {
         unsafe { self.flags.assume_init_ref() }
     }
     #[inline(always)]
-    pub fn get_game_instance(&self) -> ManagedInstance {
+    pub fn get_game_instance(&self) -> Irc<DataModel> {
         unsafe { self.data_model.assume_init_ref().clone() }
     }
     /// SAFETY: Always allowed, even from .access(). Guaranteed thread-safe
@@ -214,15 +166,17 @@ impl RobloxVM {
             .chain(std::iter::once(self.main_state.clone()))
             .collect()
     }
+    pub fn get_log_service(&self) -> Irc<LogService> {
+        <dyn IDataModel>::get_log_service(&*self.get_game_instance())
+    }
+    pub fn get_run_service(&self) -> Irc<RunService> {
+        <dyn IDataModel>::get_run_service(&*self.get_game_instance())
+    }
 }
 
-impl Drop for RobloxVM {
+impl Drop for RblxVM {
     fn drop(&mut self) {
-        if panicking() {
-            godot_print_rich!("[color=red][b]ERROR: RobloxVM:[/b] Abnormal exit (panicking() == true)[/color]\n[color=gray]   at RobloxVM::drop() ({}:{})[/color]", file!(), line!());
-        }
         self.states.clear();
         unsafe { self.flags.assume_init_drop() };
-        godot_print!("RobloxVM instance destroyed.");
     }
 }

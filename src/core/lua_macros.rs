@@ -1,3 +1,5 @@
+use r2g_mlua::prelude::*;
+
 
 macro_rules! lua_getter {
     ($lua: ident, $prop: expr) => {
@@ -113,6 +115,21 @@ macro_rules! lua_invalid_argument {
             })
         }
     }
+}
+
+
+pub(crate) fn args_to_string(args: LuaMultiValue, delimiter: &str) -> String {
+    let mut iter = args
+        .into_iter()
+        .map(|x|
+            String::from(x.to_string().unwrap_or("<unknown>".into()))
+        );
+    let first = iter.next().unwrap_or(String::default());
+    iter.fold(first, |mut a, b| {
+            a.push_str(delimiter);
+            a.push_str(b.as_str());
+            a
+        })
 }
 
 pub(crate) use lua_getter;
