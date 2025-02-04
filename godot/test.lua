@@ -3,7 +3,7 @@ local module_script = Instance.new("ModuleScript")
 script.Parent = game
 script.Source = [[
 	local function test(script, game)
-		print("hiya from roblox-to-godot! :3", _VERSION)
+		print("hiya from rblx-godot! :3", _VERSION)
 		print("script action:", script, game)
 		warn("meow :3")
 	end
