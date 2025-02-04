@@ -169,7 +169,7 @@ pub fn instance(item: proc_macro::TokenStream, ts: proc_macro::TokenStream) -> p
                 let rust_name = &f.rust_name;
 
                 quotes.push(quote! {
-                    #lua_name => Some(lua_getter!(lua, self.#rust_name))
+                    #lua_name => Some(lua_getter!(clone, lua, self.#rust_name))
                 });
             }
         }
@@ -194,9 +194,9 @@ pub fn instance(item: proc_macro::TokenStream, ts: proc_macro::TokenStream) -> p
 
     quote! {
         //static DEBUG: &str = #ls;
-        static IC: &str = #moar;
-        static RECEIVED_CODE: &str = #code;
-        static FNS: &str = #lua_fns;
+        // static IC: &str = #moar;
+        // static RECEIVED_CODE: &str = #code;
+        // static FNS: &str = #lua_fns;
         #(#attr)* #vis #struct_token #gens #component_name {
             #(#rust_fields),*
         }
