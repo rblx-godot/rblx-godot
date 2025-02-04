@@ -20,7 +20,7 @@ pub(self) use instance_repl_table::InstanceReplicationTable;
 pub(crate) use assert_gdext_api::verify_gdext_api_compat;
 pub use inheritance::*;
 pub use rc::*;
-pub use vm::RobloxVM;
+pub use vm::RblxVM;
 pub use rw_lock::*;
 pub use state::{LuauState, registry_keys, get_current_identity, get_state, get_state_with_rwlock, get_thread_identity, ThreadIdentity};
 pub use scheduler::{ITaskScheduler, TaskScheduler, get_task_scheduler_from_lua, ParallelDispatch, GlobalTaskScheduler};

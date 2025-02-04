@@ -1,0 +1,7 @@
+[gd_resource type="FontVariation" load_steps=2 format=3 uid="uid://qbacv6vdw4u3"]
+
+[ext_resource type="FontFile" uid="uid://c8bncowniim1d" path="res://addons/rblx-godot/ttf/Courier Prime Code Italic.ttf" id="1_sqi25"]
+
+[resource]
+base_font = ExtResource("1_sqi25")
+variation_embolden = 0.8

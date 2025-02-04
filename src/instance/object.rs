@@ -3,7 +3,7 @@ use r2g_mlua::prelude::*;
 use crate::core::InheritanceBase;
 use crate::userdata::ManagedRBXScriptSignal;
 
-pub trait IObject: InheritanceBase {
+pub trait IObject: InheritanceBase + Send + Sync {
     fn lua_get(&self, lua: &Lua, name: String) -> LuaResult<LuaValue>;
     fn get_class_name(&self) -> &'static str;
     fn get_property_changed_signal(&self, property: String) -> ManagedRBXScriptSignal;

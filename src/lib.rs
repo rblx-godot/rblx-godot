@@ -20,7 +20,7 @@ mod godot_vm_bindings;
 
 use core::verify_gdext_api_compat;
 
-pub use godot_vm_bindings::RobloxVMNode;
+pub use godot_vm_bindings::RblxVMNode;
 
 use godot::prelude::*;
 use rustversion_detect::RUST_VERSION;
@@ -50,10 +50,10 @@ macro_rules! godot_debug {
 }
 pub(crate) use godot_debug;
 
-struct RobloxToGodotProjectExtension;
+struct RblxGodotExtension;
 
 #[gdextension]
-unsafe impl ExtensionLibrary for RobloxToGodotProjectExtension {
+unsafe impl ExtensionLibrary for RblxGodotExtension {
     fn min_level() -> InitLevel {
         InitLevel::Scene
     }
@@ -66,14 +66,15 @@ unsafe impl ExtensionLibrary for RobloxToGodotProjectExtension {
 
                 // Currently, rust panicking leaves Luau in a corrupted state.
                 // I am unsure if this is due to mlua or due to task scheduler's exec raw.
-                std::panic::always_abort();
+                // todo! verify if this is actually needed
+                std::panic::always_abort(); 
 
-                godot_print!("Roblox To Godot Project v{} (Rust runtime v{}) by {}\n", env!("CARGO_PKG_VERSION"), RUST_VERSION, {
+                godot_print!("rblx-godot v{} (Rust runtime v{}) by {}\n", env!("CARGO_PKG_VERSION"), RUST_VERSION, {
                     let authors: &'static str = env!("CARGO_PKG_AUTHORS");
                     authors.replace(":", ", ")
                 });
                 /*
-                let mut roblox_vm = RobloxVM::new(None);
+                let mut roblox_vm = RblxVM::new(None);
                 let env = roblox_vm.get_mut().get_main_state().create_env_from_global().unwrap();
                 roblox_vm.get_mut()
                     .get_main_state()

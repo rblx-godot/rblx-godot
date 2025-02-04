@@ -1,2 +1,2 @@
 mod vm_node;
-pub use vm_node::RobloxVMNode;
+pub use vm_node::RblxVMNode;

@@ -11,7 +11,7 @@
             "program": "${workspaceFolder}/godot/godot.editor",
             "targetCreateCommands": [
                 "command source ${workspaceFolder}/commands.lldb",
-                "settings set -- target.run-args \"--headless\" \"--path\" \"./godot\""
+                "settings set -- target.run-args \"--path\" \"./godot\""
             ],
         },
         {

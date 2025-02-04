@@ -5,13 +5,13 @@
 [node name="Node" type="Node"]
 script = ExtResource("1_h2sua")
 
-[node name="RobloxVM" type="RobloxVM" parent="."]
+[node name="RblxVM" type="RblxVM" parent="."]
 startup_flags = {
 "CreatorId": 0,
 "CreatorType": 0,
 "DebugMode": true,
 "GameId": 0,
-"GameName": "RobloxToGodotProject - Test Project",
+"GameName": "rblx-godot - Test Project",
 "GlobalsReadonly": false,
 "IsClient": false,
 "IsStudio": false,

@@ -1,7 +1,7 @@
 [package]
 name = "rblx-godot"
 authors = ["Radiant", "rblx-godot contributors"]
-description = "Roblox To Godot Project, allowing you to run Roblox games inside Godot"
+description = "Creates a roblox-compatible environment for games to run inside of."
 license = "Apache-2.0"
 readme = "README.md"
 edition = "2021"

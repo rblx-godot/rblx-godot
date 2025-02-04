@@ -6,6 +6,7 @@ use crate::userdata::{ManagedRBXScriptSignal, RBXScriptSignal};
 use super::{DynInstance, IInstance, ManagedInstance};
 use super::{IObject, InstanceComponent, instance::IInstanceComponent};
 
+#[derive(Debug)]
 pub struct RunService {
     instance_component: RwLock<InstanceComponent>,
 
@@ -124,7 +125,7 @@ impl IInstance for RunService {
 
 impl RunService {
     pub fn new() -> Irc<RunService> {
-        Irc::new_cyclic(|x| RunService {
+        let inst = Irc::new_cyclic(|x| RunService {
             instance_component: RwLock::new_with_flag_auto(InstanceComponent::new(x.cast_to_instance().clone(), "RunService")),
             render_steps: RwLock::new_with_flag_auto(Vec::new()),
             heart_beat: RBXScriptSignal::new(),
@@ -134,7 +135,9 @@ impl RunService {
             pre_simulation: RBXScriptSignal::new(),
             render_stepped: RBXScriptSignal::new(),
             stepped: RBXScriptSignal::new(),
-        })
+        });
+        DynInstance::set_name(&*inst, "Run Service".into()).unwrap();
+        inst
     }
 }
 impl RunService {

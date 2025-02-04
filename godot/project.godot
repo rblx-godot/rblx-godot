@@ -10,8 +10,8 @@ config_version=5
 
 [application]
 
-config/name="RobloxToGodotProject"
+config/name="rblx-godot"
 config/tags=PackedStringArray("demo", "plugin", "rust")
 run/main_scene="res://node.tscn"
 config/features=PackedStringArray("4.3", "Forward Plus")
-config/icon="res://icon.png"
+config/icon="res://addons/rblx-godot/icon.png"

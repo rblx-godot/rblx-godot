@@ -1,14 +1,14 @@
 > [!WARNING]
 > This project is still heavily in development and as such you will see very frequent changes in the codebase and crashes from unimplemented features.
 
-# The Roblox To Godot Project
+# rblx-godot
 
-A GDExtension written in Rust that adds [Luau](https://luau-lang.org) and creates a `RobloxVM` class for Godot to be able to run Roblox games.
+A GDExtension written in Rust that adds [Luau](https://luau-lang.org) and creates a `RblxVM` class for Godot to create a Roblox-compatible environment for games to run in.
 *(+ some extras)*
 
 About
 -----
-A roblox runtime, written completely inside Rust leveraging the low-level API of Godot Game Engine.
+A stub for rbxl games to run insde Godot, written completely inside Rust leveraging the low-level API of Godot Game Engine.
 
 Features
 --------

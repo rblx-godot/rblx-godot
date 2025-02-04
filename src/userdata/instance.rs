@@ -1,6 +1,6 @@
 use r2g_mlua::prelude::*;
 
-use crate::{core::{get_state, lua_macros::lua_getter}, instance::{Actor, DynInstance, LocalScript, ManagedInstance, Model, Script}};
+use crate::{core::{get_state, lua_macros::lua_getter}, instance::{Actor, DynInstance, LocalScript, ManagedInstance, Model, ModuleScript, Script}};
 
 use super::LuaSingleton;
 
@@ -31,6 +31,7 @@ impl LuaSingleton for ManagedInstance {
                 "Actor" => lua_getter!(lua, Actor::new(get_state(lua).get_vm_mut())),
                 "Script" => lua_getter!(lua, Script::new()),
                 "LocalScript" => lua_getter!(lua, LocalScript::new()),
+                "ModuleScript" => lua_getter!(lua, ModuleScript::new()),
                 _ => Err::<LuaValue, LuaError>(LuaError::RuntimeError(format!("invalid class name \"{}\"", class_name)))
             }
         })?)?;
