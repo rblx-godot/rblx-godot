@@ -3,13 +3,7 @@ use std::intrinsics::abort;
 use godot::classes::Engine;
 use godot::global::godot_error;
 
-pub(crate) fn force_unload() {
-    // for i in GDExtensionManager::singleton().get_loaded_extensions().as_slice() {
-    //     if i.contains("roblox-to-godot-project") {
-    //         GDExtensionManager::singleton().unload_extension(i);
-    //         panic!("failed");
-    //     }
-    // }
+pub(crate) fn force_unload() -> ! {
     abort();
 }
 
