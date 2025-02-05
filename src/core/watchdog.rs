@@ -6,7 +6,7 @@ use r2g_mlua::ffi::lua_clock;
 pub struct Watchdog {
     watchdog: f64,
     timeout: f64,
-    flag: AtomicBool
+    flag: AtomicBool,
 }
 
 impl Watchdog {
@@ -14,14 +14,14 @@ impl Watchdog {
         Self {
             watchdog: 0f64,
             timeout: 0f64,
-            flag: AtomicBool::new(false)
+            flag: AtomicBool::new(false),
         }
     }
     pub const fn new_timeout(timeout: f64) -> Self {
         Self {
             watchdog: 0f64,
             timeout,
-            flag: AtomicBool::new(false)
+            flag: AtomicBool::new(false),
         }
     }
     #[inline]
@@ -30,7 +30,7 @@ impl Watchdog {
     }
     #[inline(always)]
     fn clock() -> f64 {
-        unsafe {lua_clock()}
+        unsafe { lua_clock() }
     }
     #[inline]
     pub fn trip(&self) {

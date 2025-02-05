@@ -50,7 +50,7 @@ pub enum ThreadIdentityType {
     /// Web server
     WebServer,
     /// Replication from server to client
-    Replication
+    Replication,
 }
 
 impl Default for ThreadIdentityType {
@@ -63,18 +63,31 @@ impl ThreadIdentityType {
     pub const fn get_security_contexts(&self) -> SecurityContext {
         match self {
             ThreadIdentityType::Anon => SecurityContext::NONE,
-            ThreadIdentityType::UserInit => 
-                SecurityContext(SecurityContext::PLUGIN.0 | SecurityContext::ROBLOX_PLACE.0 | SecurityContext::LOCAL_USER.0),
+            ThreadIdentityType::UserInit => SecurityContext(
+                SecurityContext::PLUGIN.0
+                    | SecurityContext::ROBLOX_PLACE.0
+                    | SecurityContext::LOCAL_USER.0,
+            ),
             ThreadIdentityType::Script => SecurityContext::NONE,
             ThreadIdentityType::ScriptInRobloxPlace => SecurityContext::ROBLOX_PLACE,
-            ThreadIdentityType::ScriptByRoblox => 
-                SecurityContext(SecurityContext::PLUGIN.0 | SecurityContext::ROBLOX_PLACE.0 | SecurityContext::LOCAL_USER.0 | SecurityContext::ROBLOX_SCRIPT.0),
-            ThreadIdentityType::StudioCommandBar => 
-                SecurityContext(SecurityContext::PLUGIN.0 | SecurityContext::ROBLOX_PLACE.0 | SecurityContext::LOCAL_USER.0),
+            ThreadIdentityType::ScriptByRoblox => SecurityContext(
+                SecurityContext::PLUGIN.0
+                    | SecurityContext::ROBLOX_PLACE.0
+                    | SecurityContext::LOCAL_USER.0
+                    | SecurityContext::ROBLOX_SCRIPT.0,
+            ),
+            ThreadIdentityType::StudioCommandBar => SecurityContext(
+                SecurityContext::PLUGIN.0
+                    | SecurityContext::ROBLOX_PLACE.0
+                    | SecurityContext::LOCAL_USER.0,
+            ),
             ThreadIdentityType::StudioPlugin => SecurityContext::PLUGIN,
             ThreadIdentityType::WebServer => SecurityContext::ROBLOX,
-            ThreadIdentityType::Replication => 
-                SecurityContext(SecurityContext::WRITE_PLAYER.0 | SecurityContext::ROBLOX_PLACE.0 | SecurityContext::ROBLOX_SCRIPT.0)
+            ThreadIdentityType::Replication => SecurityContext(
+                SecurityContext::WRITE_PLAYER.0
+                    | SecurityContext::ROBLOX_PLACE.0
+                    | SecurityContext::ROBLOX_SCRIPT.0,
+            ),
         }
     }
 }

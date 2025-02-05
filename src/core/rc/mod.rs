@@ -2,5 +2,5 @@
 mod inheriting_rc;
 mod threaded_rc;
 
-pub use threaded_rc::*;
 pub use inheriting_rc::*;
+pub use threaded_rc::*;

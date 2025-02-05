@@ -1,3 +1,5 @@
+use parking_lot::lock_api::RawRwLock as IRawRwLock;
+use parking_lot::RawRwLock;
 use std::borrow::Borrow;
 use std::borrow::BorrowMut;
 use std::cell::RefCell;
@@ -10,8 +12,6 @@ use std::ptr::null;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::Arc;
-use parking_lot::lock_api::RawRwLock as IRawRwLock;
-use parking_lot::RawRwLock;
 
 thread_local! {
     pub(super) static GLOBAL_LOCKS_OF_THREAD: RefCell<Vec<Arc<AtomicBool>>> = RefCell::default();
@@ -28,7 +28,8 @@ impl<T: Debug> Debug for RwLock<T> {
         f.debug_struct("RwLock")
             //.field("lock", &self.lock)
             .field("poisoned", &self.poisoned)
-            .field("data", &self.data).finish()
+            .field("data", &self.data)
+            .finish()
     }
 }
 
@@ -38,18 +39,18 @@ impl<T: Default> Default for RwLock<T> {
             lock: RawRwLock::INIT,
             poisoned: AtomicBool::new(false),
             data: UnsafeCell::default(),
-            global_lock: null()
+            global_lock: null(),
         }
     }
 }
 
 pub struct RwLockReadGuard<'a, T: ?Sized> {
     lock: &'a RwLock<T>,
-    holds_lock: bool
+    holds_lock: bool,
 }
 pub struct RwLockWriteGuard<'a, T: ?Sized> {
     lock: &'a RwLock<T>,
-    holds_lock: bool
+    holds_lock: bool,
 }
 
 impl<'a, T: ?Sized> !Send for RwLockReadGuard<'a, T> {}
@@ -59,44 +60,52 @@ impl<'a, 'b, T: ?Sized> !Send for RwLockWriteReleaseGuard<'a, 'b, T> {}
 
 impl<'a, T: Debug> Debug for RwLockReadGuard<'a, T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("RwLockReadGuard").field("lock", &self.lock).finish()
+        f.debug_struct("RwLockReadGuard")
+            .field("lock", &self.lock)
+            .finish()
     }
 }
 impl<'a, T: Debug> Debug for RwLockWriteGuard<'a, T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("RwLockWriteGuard").field("lock", &self.lock).finish()
+        f.debug_struct("RwLockWriteGuard")
+            .field("lock", &self.lock)
+            .finish()
     }
 }
 
 pub struct RwLockReadReleaseGuard<'a, 'b, T: ?Sized> {
-    guard: &'b mut RwLockReadGuard<'a, T>
+    guard: &'b mut RwLockReadGuard<'a, T>,
 }
 pub struct RwLockWriteReleaseGuard<'a, 'b, T: ?Sized> {
-    guard: &'b mut RwLockWriteGuard<'a, T>
+    guard: &'b mut RwLockWriteGuard<'a, T>,
 }
 
-impl <'a, 'b, T: Debug> Debug for RwLockReadReleaseGuard<'a, 'b, T> {
+impl<'a, 'b, T: Debug> Debug for RwLockReadReleaseGuard<'a, 'b, T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("RwLockReadReleaseGuard").field("guard", &self.guard).finish()
+        f.debug_struct("RwLockReadReleaseGuard")
+            .field("guard", &self.guard)
+            .finish()
     }
 }
-impl <'a, 'b, T: Debug> Debug for RwLockWriteReleaseGuard<'a, 'b, T> {
+impl<'a, 'b, T: Debug> Debug for RwLockWriteReleaseGuard<'a, 'b, T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("RwLockWriteReleaseGuard").field("guard", &self.guard).finish()
+        f.debug_struct("RwLockWriteReleaseGuard")
+            .field("guard", &self.guard)
+            .finish()
     }
 }
 
 pub struct PoisonError<T: ?Sized> {
-    guard: T
+    guard: T,
 }
 pub type LockResult<T> = Result<T, PoisonError<T>>;
-pub type TryLockResult< T> = Result<T, TryLockError<T>>;
+pub type TryLockResult<T> = Result<T, TryLockError<T>>;
 
 unsafe impl<T: ?Sized> Send for RwLock<T> {}
 unsafe impl<T: ?Sized> Sync for RwLock<T> {}
 pub enum TryLockError<T> {
     WouldBlock,
-    Poisoned(PoisonError<T>)
+    Poisoned(PoisonError<T>),
 }
 
 impl<T> RwLock<T> {
@@ -105,7 +114,7 @@ impl<T> RwLock<T> {
             lock: RawRwLock::INIT,
             poisoned: AtomicBool::new(false),
             data: UnsafeCell::new(value),
-            global_lock: null()
+            global_lock: null(),
         }
     }
     pub fn new_uninit() -> RwLock<MaybeUninit<T>> {
@@ -113,7 +122,7 @@ impl<T> RwLock<T> {
             lock: RawRwLock::INIT,
             data: UnsafeCell::new(MaybeUninit::uninit()),
             poisoned: AtomicBool::new(false),
-            global_lock: null()
+            global_lock: null(),
         }
     }
     pub fn new_with_flag(value: T, global_lock: *const AtomicBool) -> Self {
@@ -121,7 +130,7 @@ impl<T> RwLock<T> {
             lock: RawRwLock::INIT,
             poisoned: AtomicBool::new(false),
             data: UnsafeCell::new(value),
-            global_lock
+            global_lock,
         }
     }
     pub fn new_uninit_with_flag(global_lock: *const AtomicBool) -> RwLock<MaybeUninit<T>> {
@@ -129,7 +138,7 @@ impl<T> RwLock<T> {
             lock: RawRwLock::INIT,
             data: UnsafeCell::new(MaybeUninit::uninit()),
             poisoned: AtomicBool::new(false),
-            global_lock
+            global_lock,
         }
     }
     pub fn new_with_flag_auto(value: T) -> Self {
@@ -137,9 +146,8 @@ impl<T> RwLock<T> {
             lock: RawRwLock::INIT,
             poisoned: AtomicBool::new(false),
             data: UnsafeCell::new(value),
-            global_lock: GLOBAL_LOCKS_OF_THREAD.with_borrow(|x|
-                x.last().map(|x| &raw const *x.as_ref()).unwrap_or(null())
-            )
+            global_lock: GLOBAL_LOCKS_OF_THREAD
+                .with_borrow(|x| x.last().map(|x| &raw const *x.as_ref()).unwrap_or(null())),
         }
     }
     pub fn new_uninit_with_flag_auto() -> RwLock<MaybeUninit<T>> {
@@ -147,9 +155,8 @@ impl<T> RwLock<T> {
             lock: RawRwLock::INIT,
             data: UnsafeCell::new(MaybeUninit::uninit()),
             poisoned: AtomicBool::new(false),
-            global_lock: GLOBAL_LOCKS_OF_THREAD.with_borrow(|x|
-                x.last().map(|x| &raw const *x.as_ref()).unwrap_or(null())
-            )
+            global_lock: GLOBAL_LOCKS_OF_THREAD
+                .with_borrow(|x| x.last().map(|x| &raw const *x.as_ref()).unwrap_or(null())),
         }
     }
     pub fn into_inner(self) -> T {
@@ -163,7 +170,7 @@ impl<T> RwLock<MaybeUninit<T>> {
             lock: RawRwLock::INIT,
             data: UnsafeCell::new(self.data.into_inner().assume_init()),
             poisoned: AtomicBool::new(false),
-            global_lock: self.global_lock
+            global_lock: self.global_lock,
         }
     }
 }
@@ -183,10 +190,16 @@ impl<T: ?Sized> RwLock<T> {
 
         let rw_lock_read_guard = RwLockReadGuard {
             lock: self,
-            holds_lock
+            holds_lock,
         };
 
-        if self.poisoned.load(Relaxed) { Err(PoisonError { guard: rw_lock_read_guard }) } else { Ok(rw_lock_read_guard) }
+        if self.poisoned.load(Relaxed) {
+            Err(PoisonError {
+                guard: rw_lock_read_guard,
+            })
+        } else {
+            Ok(rw_lock_read_guard)
+        }
     }
     #[inline]
     pub fn try_read<'a>(&'a self) -> TryLockResult<RwLockReadGuard<'a, T>> {
@@ -195,10 +208,16 @@ impl<T: ?Sized> RwLock<T> {
         if !holds_lock || self.lock.try_lock_shared() {
             let rw_lock_read_guard = RwLockReadGuard {
                 lock: self,
-                holds_lock
+                holds_lock,
             };
 
-            if self.poisoned.load(Relaxed) { Err(TryLockError::Poisoned(PoisonError { guard: rw_lock_read_guard })) } else { Ok(rw_lock_read_guard) }
+            if self.poisoned.load(Relaxed) {
+                Err(TryLockError::Poisoned(PoisonError {
+                    guard: rw_lock_read_guard,
+                }))
+            } else {
+                Ok(rw_lock_read_guard)
+            }
         } else {
             Err(TryLockError::WouldBlock)
         }
@@ -213,10 +232,16 @@ impl<T: ?Sized> RwLock<T> {
 
         let rw_lock_write_guard = RwLockWriteGuard {
             lock: self,
-            holds_lock
+            holds_lock,
         };
 
-        if self.poisoned.load(Relaxed) { Err(PoisonError { guard: rw_lock_write_guard }) } else { Ok(rw_lock_write_guard) }
+        if self.poisoned.load(Relaxed) {
+            Err(PoisonError {
+                guard: rw_lock_write_guard,
+            })
+        } else {
+            Ok(rw_lock_write_guard)
+        }
     }
     #[inline]
     pub fn try_write<'a>(&'a self) -> TryLockResult<RwLockWriteGuard<'a, T>> {
@@ -225,10 +250,16 @@ impl<T: ?Sized> RwLock<T> {
         if !holds_lock || self.lock.try_lock_exclusive() {
             let rw_lock_write_guard = RwLockWriteGuard {
                 lock: self,
-                holds_lock
+                holds_lock,
             };
 
-            if self.poisoned.load(Relaxed) { Err(TryLockError::Poisoned(PoisonError { guard: rw_lock_write_guard })) } else { Ok(rw_lock_write_guard) }
+            if self.poisoned.load(Relaxed) {
+                Err(TryLockError::Poisoned(PoisonError {
+                    guard: rw_lock_write_guard,
+                }))
+            } else {
+                Ok(rw_lock_write_guard)
+            }
         } else {
             Err(TryLockError::WouldBlock)
         }
@@ -263,7 +294,7 @@ impl<T: ?Sized> RwLock<T> {
     }
     #[inline(always)]
     pub unsafe fn unlock_exclusive(&self) {
-        self.lock.unlock_exclusive  ();
+        self.lock.unlock_exclusive();
 
         if std::thread::panicking() {
             self.poisoned.store(true, Relaxed);
@@ -344,19 +375,19 @@ impl<'a, T: ?Sized> DerefMut for RwLockWriteGuard<'a, T> {
 impl<'a, T: ?Sized> Borrow<T> for RwLockReadGuard<'a, T> {
     #[inline]
     fn borrow(&self) -> &T {
-        unsafe {&*self.lock.data.get()}
+        unsafe { &*self.lock.data.get() }
     }
 }
 impl<'a, T: ?Sized> Borrow<T> for RwLockWriteGuard<'a, T> {
     #[inline]
     fn borrow(&self) -> &T {
-        unsafe {&*self.lock.data.get()}
+        unsafe { &*self.lock.data.get() }
     }
 }
 impl<'a, T: ?Sized> BorrowMut<T> for RwLockWriteGuard<'a, T> {
     #[inline]
     fn borrow_mut(&mut self) -> &mut T {
-        unsafe { &mut*self.lock.data.get() } 
+        unsafe { &mut *self.lock.data.get() }
     }
 }
 impl<T> PoisonError<T> {

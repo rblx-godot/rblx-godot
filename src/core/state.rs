@@ -1,15 +1,21 @@
 use std::mem::MaybeUninit;
-use std::{collections::HashMap, ffi::c_void, mem::transmute, ptr::addr_of_mut};
 use std::ptr::null_mut;
+use std::{collections::HashMap, ffi::c_void, mem::transmute, ptr::addr_of_mut};
 
-use r2g_mlua::{prelude::*, ChunkMode, Compiler};
 use super::lua_macros::args_to_string;
 use super::scheduler::ITaskScheduler;
 use super::ParallelDispatch::{Default, Synchronized};
-use super::{borrowck_ignore, FastFlag, FastFlags, Irc, RwLock, RwLockReadGuard, RwLockWriteGuard, TaskScheduler, Trc};
+use super::{
+    borrowck_ignore, FastFlag, FastFlags, Irc, RwLock, RwLockReadGuard, RwLockWriteGuard,
+    TaskScheduler, Trc,
+};
 use super::{security::ThreadIdentityType, vm::RblxVM};
-use crate::instance::{DataModel, DynInstance, IModuleScript, LogService, ManagedInstance, WeakManagedActor, WeakManagedInstance};
+use crate::instance::{
+    DataModel, DynInstance, IModuleScript, LogService, ManagedInstance, WeakManagedActor,
+    WeakManagedInstance,
+};
 use crate::userdata::register_userdata_singletons;
+use r2g_mlua::{prelude::*, ChunkMode, Compiler};
 
 pub mod registry_keys {
     pub const VM_REGISTRYKEY: &'static str = "__vm__";
@@ -38,7 +44,8 @@ impl LuauState {
         unsafe {
             let ptr: *mut RwLock<RblxVM> = transmute(
                 lua.named_registry_value::<LuaLightUserData>(registry_keys::VM_REGISTRYKEY)
-                .unwrap_unchecked().0
+                    .unwrap_unchecked()
+                    .0,
             );
             debug_assert!(!ptr.is_null());
             ptr.as_mut().unwrap_unchecked()
@@ -51,19 +58,35 @@ impl LuauState {
         }
         let state;
         unsafe {
-            let reg: LuaLightUserData = lua.named_registry_value(registry_keys::STATE_REGISTRYKEY)?;
+            let reg: LuaLightUserData =
+                lua.named_registry_value(registry_keys::STATE_REGISTRYKEY)?;
             state = reg.0.cast::<LuauState>().as_mut().unwrap();
         }
         match event {
             LuaThreadEventInfo::Created(parent) => {
-                state.get_log_service().log_message(lua, format!("[thread_events] new thread created: thread: 0x{:x} by thread: 0x{:x}",lua.current_thread().to_pointer() as isize,parent.to_pointer() as isize));
+                state.get_log_service().log_message(
+                    lua,
+                    format!(
+                        "[thread_events] new thread created: thread: 0x{:x} by thread: 0x{:x}",
+                        lua.current_thread().to_pointer() as isize,
+                        parent.to_pointer() as isize
+                    ),
+                );
                 let iden = state.threads.get(&parent.to_pointer());
                 if iden.is_some() {
-                    state.threads.insert(lua.current_thread().to_pointer(), iden.unwrap().clone());
+                    state
+                        .threads
+                        .insert(lua.current_thread().to_pointer(), iden.unwrap().clone());
                 }
             }
             LuaThreadEventInfo::Destroyed(thread_ptr) => {
-                state.get_log_service().log_message(lua, format!("[thread_events] thread destroyed: thread: 0x{:x}",thread_ptr as isize));
+                state.get_log_service().log_message(
+                    lua,
+                    format!(
+                        "[thread_events] thread destroyed: thread: 0x{:x}",
+                        thread_ptr as isize
+                    ),
+                );
                 state.threads.remove(&thread_ptr);
             }
         }
@@ -75,7 +98,10 @@ impl LuauState {
     pub fn get_thread_identity_pointer(&self, thread: *const c_void) -> Option<&ThreadIdentity> {
         self.threads.get(&thread)
     }
-    pub fn get_thread_identity_pointer_pointer_mut(&mut self, thread: *const c_void) -> Option<&mut ThreadIdentity> {
+    pub fn get_thread_identity_pointer_pointer_mut(
+        &mut self,
+        thread: *const c_void,
+    ) -> Option<&mut ThreadIdentity> {
         self.threads.get_mut(&thread)
     }
     pub fn get_thread_identity(&self, thread: LuaThread) -> Option<&ThreadIdentity> {
@@ -88,90 +114,272 @@ impl LuauState {
         self.threads.insert(thread.to_pointer().cast(), identity);
     }
     pub(super) unsafe fn bind_services(&mut self) {
-        self.lua.set_named_registry_value(registry_keys::LOG_SERVICE_REGISTRYKEY, self.vm.as_ref().unwrap_unchecked().read().unwrap().get_log_service().cast_from_sized::<DynInstance>().unwrap()).unwrap();
+        self.lua
+            .set_named_registry_value(
+                registry_keys::LOG_SERVICE_REGISTRYKEY,
+                self.vm
+                    .as_ref()
+                    .unwrap_unchecked()
+                    .read()
+                    .unwrap()
+                    .get_log_service()
+                    .cast_from_sized::<DynInstance>()
+                    .unwrap(),
+            )
+            .unwrap();
     }
     unsafe fn register_globals(&mut self) {
-        self.lua.globals().raw_set("print", self.lua.create_function(|lua, args: LuaMultiValue| {
-            get_state(lua).get_log_service().log_message(lua, args_to_string(args, "\t"));
-            Ok(())
-        }).unwrap()).unwrap();
-        self.lua.globals().raw_set("warn", self.lua.create_function(|lua, args: LuaMultiValue| {
-            get_state(lua).get_log_service().log_warn(lua, args_to_string(args, "\t"));
-            Ok(())
-        }).unwrap()).unwrap();
-        self.lua.globals().raw_set("game", self.vm.as_ref().unwrap_unchecked().read().unwrap().get_game_instance().cast_from_sized::<DynInstance>().unwrap()).unwrap();
-        self.lua.set_named_registry_value(registry_keys::DATA_MODEL_REGISTRYKEY, self.vm.as_ref().unwrap_unchecked().read().unwrap().get_game_instance().cast_from_sized::<DynInstance>().unwrap()).unwrap();
+        self.lua
+            .globals()
+            .raw_set(
+                "print",
+                self.lua
+                    .create_function(|lua, args: LuaMultiValue| {
+                        get_state(lua)
+                            .get_log_service()
+                            .log_message(lua, args_to_string(args, "\t"));
+                        Ok(())
+                    })
+                    .unwrap(),
+            )
+            .unwrap();
+        self.lua
+            .globals()
+            .raw_set(
+                "warn",
+                self.lua
+                    .create_function(|lua, args: LuaMultiValue| {
+                        get_state(lua)
+                            .get_log_service()
+                            .log_warn(lua, args_to_string(args, "\t"));
+                        Ok(())
+                    })
+                    .unwrap(),
+            )
+            .unwrap();
+        self.lua
+            .globals()
+            .raw_set(
+                "game",
+                self.vm
+                    .as_ref()
+                    .unwrap_unchecked()
+                    .read()
+                    .unwrap()
+                    .get_game_instance()
+                    .cast_from_sized::<DynInstance>()
+                    .unwrap(),
+            )
+            .unwrap();
+        self.lua
+            .set_named_registry_value(
+                registry_keys::DATA_MODEL_REGISTRYKEY,
+                self.vm
+                    .as_ref()
+                    .unwrap_unchecked()
+                    .read()
+                    .unwrap()
+                    .get_game_instance()
+                    .cast_from_sized::<DynInstance>()
+                    .unwrap(),
+            )
+            .unwrap();
         // Task scheduler registration
         {
             type DynTaskScheduler = dyn ITaskScheduler;
             let task = self.lua.create_table().unwrap();
-            task.raw_set("spawn", self.lua.create_function(|lua, (thread_or_func,mv): (LuaValue, LuaMultiValue)| {
-                match thread_or_func {
-                    LuaValue::Thread(thread) => get_state(borrowck_ignore(lua)).get_task_scheduler().spawn_thread(thread),
-                    LuaValue::Function(func) => get_state(borrowck_ignore(lua)).get_task_scheduler().spawn_func(lua, func, mv),
-                    _ => Err(LuaError::RuntimeError("invalid argument #1 to 'spawn' (thread or function expected)".into()))
-                }
-            }).unwrap()).unwrap();
-            task.raw_set("defer", self.lua.create_function(|lua, (thread_or_func,mv): (LuaValue, LuaMultiValue)| {
-                match thread_or_func {
-                    LuaValue::Thread(thread) => get_state(borrowck_ignore(lua)).get_task_scheduler_mut().defer_thread(thread, Default),
-                    LuaValue::Function(func) => get_state(borrowck_ignore(lua)).get_task_scheduler_mut().defer_func(lua, func, mv, Synchronized),
-                    _ => Err(LuaError::RuntimeError("invalid argument #1 to 'defer' (thread or function expected)".into()))
-                }
-            }).unwrap()).unwrap();
-            task.raw_set("delay", self.lua.create_function(|lua, (time,thread_or_func,mv): (f64,LuaValue,LuaMultiValue)| {
-                match thread_or_func {
-                    LuaValue::Thread(thread) => get_state(borrowck_ignore(lua)).get_task_scheduler_mut().delay_thread(thread, Default, time),
-                    LuaValue::Function(func) => get_state(borrowck_ignore(lua)).get_task_scheduler_mut().delay_func(lua, func, mv, Synchronized, time),
-                    _ => Err(LuaError::RuntimeError("invalid argument #2 to 'delay' (thread or function expected)".into()))
-                }
-            }).unwrap()).unwrap();
-            task.raw_set("cancel", self.lua.create_function(|lua, thread: LuaThread| {
-                get_state(borrowck_ignore(lua)).get_task_scheduler_mut().cancel(lua, &thread)
-            }).unwrap()).unwrap();
-            task.raw_set("synchronize", self.lua.create_c_function(DynTaskScheduler::synchronize).unwrap()).unwrap();
-            task.raw_set("desynchronize", self.lua.create_c_function(DynTaskScheduler::desynchronize).unwrap()).unwrap();
-            task.raw_set("wait", self.lua.create_c_function(DynTaskScheduler::wait).unwrap()).unwrap();
-            task.raw_set("synchronize", self.lua.create_c_function(DynTaskScheduler::synchronize).unwrap()).unwrap();
-            task.raw_set("desynchronize", self.lua.create_c_function(DynTaskScheduler::desynchronize).unwrap()).unwrap();
+            task.raw_set(
+                "spawn",
+                self.lua
+                    .create_function(|lua, (thread_or_func, mv): (LuaValue, LuaMultiValue)| {
+                        match thread_or_func {
+                            LuaValue::Thread(thread) => get_state(borrowck_ignore(lua))
+                                .get_task_scheduler()
+                                .spawn_thread(thread),
+                            LuaValue::Function(func) => get_state(borrowck_ignore(lua))
+                                .get_task_scheduler()
+                                .spawn_func(lua, func, mv),
+                            _ => Err(LuaError::RuntimeError(
+                                "invalid argument #1 to 'spawn' (thread or function expected)"
+                                    .into(),
+                            )),
+                        }
+                    })
+                    .unwrap(),
+            )
+            .unwrap();
+            task.raw_set(
+                "defer",
+                self.lua
+                    .create_function(|lua, (thread_or_func, mv): (LuaValue, LuaMultiValue)| {
+                        match thread_or_func {
+                            LuaValue::Thread(thread) => get_state(borrowck_ignore(lua))
+                                .get_task_scheduler_mut()
+                                .defer_thread(thread, Default),
+                            LuaValue::Function(func) => get_state(borrowck_ignore(lua))
+                                .get_task_scheduler_mut()
+                                .defer_func(lua, func, mv, Synchronized),
+                            _ => Err(LuaError::RuntimeError(
+                                "invalid argument #1 to 'defer' (thread or function expected)"
+                                    .into(),
+                            )),
+                        }
+                    })
+                    .unwrap(),
+            )
+            .unwrap();
+            task.raw_set(
+                "delay",
+                self.lua
+                    .create_function(
+                        |lua, (time, thread_or_func, mv): (f64, LuaValue, LuaMultiValue)| {
+                            match thread_or_func {
+                                LuaValue::Thread(thread) => get_state(borrowck_ignore(lua))
+                                    .get_task_scheduler_mut()
+                                    .delay_thread(thread, Default, time),
+                                LuaValue::Function(func) => get_state(borrowck_ignore(lua))
+                                    .get_task_scheduler_mut()
+                                    .delay_func(lua, func, mv, Synchronized, time),
+                                _ => Err(LuaError::RuntimeError(
+                                    "invalid argument #2 to 'delay' (thread or function expected)"
+                                        .into(),
+                                )),
+                            }
+                        },
+                    )
+                    .unwrap(),
+            )
+            .unwrap();
+            task.raw_set(
+                "cancel",
+                self.lua
+                    .create_function(|lua, thread: LuaThread| {
+                        get_state(borrowck_ignore(lua))
+                            .get_task_scheduler_mut()
+                            .cancel(lua, &thread)
+                    })
+                    .unwrap(),
+            )
+            .unwrap();
+            task.raw_set(
+                "synchronize",
+                self.lua
+                    .create_c_function(DynTaskScheduler::synchronize)
+                    .unwrap(),
+            )
+            .unwrap();
+            task.raw_set(
+                "desynchronize",
+                self.lua
+                    .create_c_function(DynTaskScheduler::desynchronize)
+                    .unwrap(),
+            )
+            .unwrap();
+            task.raw_set(
+                "wait",
+                self.lua.create_c_function(DynTaskScheduler::wait).unwrap(),
+            )
+            .unwrap();
+            task.raw_set(
+                "synchronize",
+                self.lua
+                    .create_c_function(DynTaskScheduler::synchronize)
+                    .unwrap(),
+            )
+            .unwrap();
+            task.raw_set(
+                "desynchronize",
+                self.lua
+                    .create_c_function(DynTaskScheduler::desynchronize)
+                    .unwrap(),
+            )
+            .unwrap();
             task.set_readonly(true);
 
             self.lua.globals().raw_set("task", task).unwrap();
-            self.lua.set_named_registry_value("task", self.lua.globals().raw_get::<LuaValue>("task").unwrap()).unwrap();
+            self.lua
+                .set_named_registry_value(
+                    "task",
+                    self.lua.globals().raw_get::<LuaValue>("task").unwrap(),
+                )
+                .unwrap();
 
-            self.lua.set_named_registry_value(
-                registry_keys::TASK_PUSH_WAIT,
-                self.lua.create_function(DynTaskScheduler::push_wait).unwrap()
-            ).unwrap();
-            self.lua.set_named_registry_value(
-                registry_keys::TASK_PUSH_SYNC_DESYNC,
-                self.lua.create_function(DynTaskScheduler::push_sync_desync).unwrap()
-            ).unwrap();
+            self.lua
+                .set_named_registry_value(
+                    registry_keys::TASK_PUSH_WAIT,
+                    self.lua
+                        .create_function(DynTaskScheduler::push_wait)
+                        .unwrap(),
+                )
+                .unwrap();
+            self.lua
+                .set_named_registry_value(
+                    registry_keys::TASK_PUSH_SYNC_DESYNC,
+                    self.lua
+                        .create_function(DynTaskScheduler::push_sync_desync)
+                        .unwrap(),
+                )
+                .unwrap();
 
-            self.lua.globals().raw_set("wait", self.lua.create_c_function(DynTaskScheduler::wait).unwrap()).unwrap();
-            let v = self.lua.globals().raw_get::<LuaTable>("task").unwrap().raw_get::<LuaValue>("defer").unwrap();
+            self.lua
+                .globals()
+                .raw_set(
+                    "wait",
+                    self.lua.create_c_function(DynTaskScheduler::wait).unwrap(),
+                )
+                .unwrap();
+            let v = self
+                .lua
+                .globals()
+                .raw_get::<LuaTable>("task")
+                .unwrap()
+                .raw_get::<LuaValue>("defer")
+                .unwrap();
             self.lua.globals().raw_set("spawn", v).unwrap();
         }
 
-        self.lua.globals().raw_set("require", self.lua.create_function(|lua, script: ManagedInstance| {
-            let s = script.cast_from_unsized::<dyn IModuleScript>()
-                .map_err(|_| LuaError::RuntimeError("invalid argument #1 to 'require' (ModuleScript expected)".into()))?;
-            s.require(lua, &get_state(lua).actor)
-        }).unwrap()).unwrap();
-
+        self.lua
+            .globals()
+            .raw_set(
+                "require",
+                self.lua
+                    .create_function(|lua, script: ManagedInstance| {
+                        let s = script
+                            .cast_from_unsized::<dyn IModuleScript>()
+                            .map_err(|_| {
+                                LuaError::RuntimeError(
+                                    "invalid argument #1 to 'require' (ModuleScript expected)"
+                                        .into(),
+                                )
+                            })?;
+                        s.require(lua, &get_state(lua).actor)
+                    })
+                    .unwrap(),
+            )
+            .unwrap();
     }
     unsafe fn _init(&mut self) {
-        self.lua.set_named_registry_value(registry_keys::VM_REGISTRYKEY, LuaLightUserData(self.vm.cast())).unwrap();
+        self.lua
+            .set_named_registry_value(
+                registry_keys::VM_REGISTRYKEY,
+                LuaLightUserData(self.vm.cast()),
+            )
+            .unwrap();
         let state_userdata = LuaLightUserData(addr_of_mut!(*self).cast());
-        self.lua.set_named_registry_value(registry_keys::STATE_REGISTRYKEY, state_userdata).unwrap();
-        
+        self.lua
+            .set_named_registry_value(registry_keys::STATE_REGISTRYKEY, state_userdata)
+            .unwrap();
+
         self.register_globals();
-        
+
         self.lua.sandbox(true).unwrap();
         self.lua.enable_jit(false);
         register_userdata_singletons(&mut self.lua).unwrap();
-        self.lua.globals().set_readonly(self.flags().get_bool(FastFlag::GlobalsReadonly));
-        self.lua.set_thread_event_callback(Self::thread_event_callback);
+        self.lua
+            .globals()
+            .set_readonly(self.flags().get_bool(FastFlag::GlobalsReadonly));
+        self.lua
+            .set_thread_event_callback(Self::thread_event_callback);
         self.lua.gc_stop();
     }
     pub(super) unsafe fn init(&mut self, ptr: *mut RwLock<RblxVM>, task: Box<dyn ITaskScheduler>) {
@@ -186,9 +394,11 @@ impl LuauState {
             lua: Lua::new(),
             threads: HashMap::default(),
             task: MaybeUninit::new(Box::new(TaskScheduler::new())),
-            actor: None
+            actor: None,
         };
-        unsafe {state._init();}
+        unsafe {
+            state._init();
+        }
         state
     }
     pub(super) unsafe fn new_uninit() -> LuauState {
@@ -197,22 +407,24 @@ impl LuauState {
             lua: Lua::new(),
             threads: HashMap::default(),
             task: MaybeUninit::uninit(),
-            actor: None
+            actor: None,
         }
     }
     pub fn get_vm(&self) -> RwLockReadGuard<RblxVM> {
-        unsafe {
-            self.vm.as_ref().unwrap_unchecked().read().unwrap()
-        }
+        unsafe { self.vm.as_ref().unwrap_unchecked().read().unwrap() }
     }
     pub fn get_vm_mut(&self) -> RwLockWriteGuard<RblxVM> {
-        unsafe {
-            self.vm.as_ref().unwrap_unchecked().write().unwrap()
-        }
+        unsafe { self.vm.as_ref().unwrap_unchecked().write().unwrap() }
     }
 
     pub(super) unsafe fn watchdog_check(&self) -> bool {
-        self.vm.as_ref().unwrap_unchecked().access().as_ref().unwrap_unchecked().watchdog_check()
+        self.vm
+            .as_ref()
+            .unwrap_unchecked()
+            .access()
+            .as_ref()
+            .unwrap_unchecked()
+            .watchdog_check()
     }
 
     // Mutable borrow is forced here to prevent modifying the lua state with a read-only borrow.
@@ -226,27 +438,43 @@ impl LuauState {
             "NumberSequence","NumberSequenceKeypoint","OverlapParams","Path2DControlPoint","PathWaypoint","PhysicalProperties",
             "Random","Ray","RaycastParams","RaycastResult","RBXScriptConnection","RBXScriptSignal","Rect","Region3","Region3int16",
             "RotationCurveKey","Secret","SharedTable","TweenInfo","UDim","UDim2","Vector2","Vector2int16","Vector3","Vector3int16"
-        ]*/ // sadly doesnt work
+        ]*/
+        // sadly doesnt work
         &["Instance"] // good enough
     }
     fn get_debug_compiler() -> Compiler {
         Compiler::new()
             .set_debug_level(2)
             .set_optimization_level(1)
-            .set_userdata_types(Self::get_userdata_types().into_iter().map(|x| String::from(*x)).collect())
+            .set_userdata_types(
+                Self::get_userdata_types()
+                    .into_iter()
+                    .map(|x| String::from(*x))
+                    .collect(),
+            )
     }
     fn get_release_compiler() -> Compiler {
         Compiler::new()
             .set_debug_level(1)
             .set_optimization_level(2)
-            .set_userdata_types(Self::get_userdata_types().into_iter().map(|x| String::from(*x)).collect())
+            .set_userdata_types(
+                Self::get_userdata_types()
+                    .into_iter()
+                    .map(|x| String::from(*x))
+                    .collect(),
+            )
             .set_type_info_level(1)
     }
-    pub fn compile_jit(&mut self, chunk_name: &str, chunk: &str, env: LuaTable) -> LuaResult<LuaFunction> {
-        let v = Self::get_release_compiler()
-            .compile(chunk)?;
+    pub fn compile_jit(
+        &mut self,
+        chunk_name: &str,
+        chunk: &str,
+        env: LuaTable,
+    ) -> LuaResult<LuaFunction> {
+        let v = Self::get_release_compiler().compile(chunk)?;
         self.lua.enable_jit(true);
-        let f = self.lua
+        let f = self
+            .lua
             .load(v)
             .set_name(chunk_name)
             .set_mode(ChunkMode::Binary)
@@ -255,19 +483,29 @@ impl LuauState {
         self.lua.enable_jit(false);
         f
     }
-    pub fn compile_release(&mut self, chunk_name: &str, chunk: &str, env: LuaTable) -> LuaResult<LuaFunction> {
-        let v = Self::get_release_compiler()
-            .compile(chunk)?;
-        self.lua.load(v)
+    pub fn compile_release(
+        &mut self,
+        chunk_name: &str,
+        chunk: &str,
+        env: LuaTable,
+    ) -> LuaResult<LuaFunction> {
+        let v = Self::get_release_compiler().compile(chunk)?;
+        self.lua
+            .load(v)
             .set_name(chunk_name)
             .set_mode(ChunkMode::Binary)
             .set_environment(env)
             .into_function()
     }
-    pub fn compile_debug(&mut self, chunk_name: &str, chunk: &str, env: LuaTable) -> LuaResult<LuaFunction> {
-        let v = Self::get_debug_compiler()
-            .compile(chunk)?;
-        self.lua.load(v)
+    pub fn compile_debug(
+        &mut self,
+        chunk_name: &str,
+        chunk: &str,
+        env: LuaTable,
+    ) -> LuaResult<LuaFunction> {
+        let v = Self::get_debug_compiler().compile(chunk)?;
+        self.lua
+            .load(v)
             .set_name(chunk_name)
             .set_mode(ChunkMode::Binary)
             .set_environment(env)
@@ -317,10 +555,18 @@ impl LuauState {
         self.actor = Some(actor);
     }
     pub fn get_log_service(&self) -> Irc<LogService> {
-        self.lua.named_registry_value::<ManagedInstance>(registry_keys::LOG_SERVICE_REGISTRYKEY).unwrap().cast_from_unsized::<LogService>().unwrap()
+        self.lua
+            .named_registry_value::<ManagedInstance>(registry_keys::LOG_SERVICE_REGISTRYKEY)
+            .unwrap()
+            .cast_from_unsized::<LogService>()
+            .unwrap()
     }
     pub fn get_data_model(&self) -> Irc<DataModel> {
-        self.lua.named_registry_value::<ManagedInstance>(registry_keys::DATA_MODEL_REGISTRYKEY).unwrap().cast_from_unsized::<DataModel>().unwrap()
+        self.lua
+            .named_registry_value::<ManagedInstance>(registry_keys::DATA_MODEL_REGISTRYKEY)
+            .unwrap()
+            .cast_from_unsized::<DataModel>()
+            .unwrap()
     }
 }
 
@@ -333,22 +579,41 @@ impl Drop for LuauState {
 pub fn get_current_identity(l: &Lua) -> Option<&mut ThreadIdentity> {
     let state;
     unsafe {
-        let reg: Option<LuaLightUserData> = l.named_registry_value(registry_keys::STATE_REGISTRYKEY).ok();
+        let reg: Option<LuaLightUserData> = l
+            .named_registry_value(registry_keys::STATE_REGISTRYKEY)
+            .ok();
         if reg.is_none() {
             return None;
         }
-        state = reg.unwrap_unchecked().0.cast::<LuauState>().as_mut().unwrap();
+        state = reg
+            .unwrap_unchecked()
+            .0
+            .cast::<LuauState>()
+            .as_mut()
+            .unwrap();
     }
-    state.threads.get_mut(&l.current_thread().to_pointer().cast())
+    state
+        .threads
+        .get_mut(&l.current_thread().to_pointer().cast())
 }
-pub fn get_thread_identity<'a, 'b>(l: &'a Lua, thread: &'b LuaThread) -> Option<&'b ThreadIdentity> {
+pub fn get_thread_identity<'a, 'b>(
+    l: &'a Lua,
+    thread: &'b LuaThread,
+) -> Option<&'b ThreadIdentity> {
     let state;
     unsafe {
-        let reg: Option<LuaLightUserData> = l.named_registry_value(registry_keys::STATE_REGISTRYKEY).ok();
+        let reg: Option<LuaLightUserData> = l
+            .named_registry_value(registry_keys::STATE_REGISTRYKEY)
+            .ok();
         if reg.is_none() {
             return None;
         }
-        state = reg.unwrap_unchecked().0.cast::<LuauState>().as_mut().unwrap();
+        state = reg
+            .unwrap_unchecked()
+            .0
+            .cast::<LuauState>()
+            .as_mut()
+            .unwrap();
     }
     state.threads.get(&thread.to_pointer().cast())
 }
@@ -365,5 +630,7 @@ pub fn get_state_with_rwlock(l: &Lua) -> &Trc<LuauState> {
     let state = get_state(l);
     let ptr = &raw mut *state;
     let vm = state.get_vm();
-    vm.get_state_with_rwlock(ptr).map(|x| unsafe {&*x}).unwrap()
+    vm.get_state_with_rwlock(ptr)
+        .map(|x| unsafe { &*x })
+        .unwrap()
 }

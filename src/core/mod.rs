@@ -1,32 +1,38 @@
 pub mod alloc;
-mod rc;
-mod security;
+mod assert_gdext_api;
 pub(crate) mod debug;
-mod state;
-mod scheduler;
-mod vm;
+mod fastflags;
 mod inheritance;
-mod pointers;
 mod instance_repl_table;
 mod instance_tag_collection;
-mod rw_lock;
-mod watchdog;
-mod fastflags;
 pub mod lua_macros;
-mod assert_gdext_api;
+mod pointers;
+mod rc;
+mod rw_lock;
+mod scheduler;
+mod security;
+mod state;
+mod vm;
+mod watchdog;
 
-pub(self) use instance_tag_collection::InstanceTagCollectionTable;
-pub(self) use instance_repl_table::InstanceReplicationTable;
 pub(crate) use assert_gdext_api::verify_gdext_api_compat;
-pub use inheritance::*;
-pub use rc::*;
-pub use vm::RblxVM;
-pub use rw_lock::*;
-pub use state::{LuauState, registry_keys, get_current_identity, get_state, get_state_with_rwlock, get_thread_identity, ThreadIdentity};
-pub use scheduler::{ITaskScheduler, TaskScheduler, get_task_scheduler_from_lua, ParallelDispatch, GlobalTaskScheduler};
-pub use security::*;
 pub use fastflags::*;
+pub use inheritance::*;
+pub(self) use instance_repl_table::InstanceReplicationTable;
+pub(self) use instance_tag_collection::InstanceTagCollectionTable;
 pub(self) use pointers::*;
+pub use rc::*;
+pub use rw_lock::*;
+pub use scheduler::{
+    get_task_scheduler_from_lua, GlobalTaskScheduler, ITaskScheduler, ParallelDispatch,
+    TaskScheduler,
+};
+pub use security::*;
+pub use state::{
+    get_current_identity, get_state, get_state_with_rwlock, get_thread_identity, registry_keys,
+    LuauState, ThreadIdentity,
+};
+pub use vm::RblxVM;
 pub use watchdog::Watchdog;
 
 /// Provides a way to ignore borrowck for a specific borrow.

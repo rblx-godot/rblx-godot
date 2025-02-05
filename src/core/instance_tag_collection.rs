@@ -14,7 +14,10 @@ impl InstanceTagCollectionTable {
         let read_guard = self.main.read().unwrap();
         let table = read_guard.get(&tag);
         if table.is_some() {
-            unsafe { table.unwrap_unchecked() }.write().unwrap().insert(instance);
+            unsafe { table.unwrap_unchecked() }
+                .write()
+                .unwrap()
+                .insert(instance);
         } else {
             drop(read_guard);
             let mut write_guard = self.main.write().unwrap();
@@ -27,13 +30,15 @@ impl InstanceTagCollectionTable {
         let read_guard = self.main.read().unwrap();
         let table = read_guard.get(&tag);
         if table.is_some() {
-            unsafe { table.unwrap_unchecked() }.write().unwrap().remove(instance);
+            unsafe { table.unwrap_unchecked() }
+                .write()
+                .unwrap()
+                .remove(instance);
         }
     }
     pub fn garbage_collect(&self) {
         for (_, tbl) in self.main.read().unwrap().iter() {
-            tbl.write().unwrap()
-                .retain(|x| !x.dead());
+            tbl.write().unwrap().retain(|x| !x.dead());
         }
     }
 }

@@ -15,11 +15,11 @@ struct PagedAllocatorHead<A: Allocator> {
     alloc: A,
     pages: Vec<*mut u8>,
     available_pages: Vec<*mut u8>, // PAGE, PAGE INDEX
-    page_size: usize
+    page_size: usize,
 }
 #[derive(Clone)]
 pub struct PagedAllocator<A: Allocator = Global> {
-    head: Arc<Mutex<PagedAllocatorHead<A>>>
+    head: Arc<Mutex<PagedAllocatorHead<A>>>,
 }
 
 unsafe impl<A: Allocator> Send for PagedAllocator<A> {}
@@ -27,7 +27,7 @@ unsafe impl<A: Allocator> Sync for PagedAllocator<A> {}
 
 #[derive(Clone)]
 pub struct LocalPagedAllocator<A: Allocator = Global> {
-    head: Rc<Cell<PagedAllocatorHead<A>>>
+    head: Rc<Cell<PagedAllocatorHead<A>>>,
 }
 
 impl PagedAllocator {
@@ -49,8 +49,8 @@ impl<A: Allocator> PagedAllocator<A> {
                 alloc,
                 pages: Vec::new(),
                 available_pages: Vec::new(),
-                page_size
-            }))
+                page_size,
+            })),
         }
     }
 }
@@ -74,8 +74,8 @@ impl<A: Allocator> LocalPagedAllocator<A> {
                 alloc,
                 pages: Vec::new(),
                 available_pages: Vec::new(),
-                page_size
-            }))
+                page_size,
+            })),
         }
     }
 }
@@ -83,15 +83,23 @@ impl<A: Allocator> LocalPagedAllocator<A> {
 #[inline]
 fn create_page_layout(layout: Layout, page_size: usize) -> Result<Layout, LayoutError> {
     // Inlined from Layout::array()
-    if layout.size() != 0 && page_size > unsafe { (isize::MAX as usize + 1).unchecked_sub(layout.align()) } / layout.size() {
+    if layout.size() != 0
+        && page_size
+            > unsafe { (isize::MAX as usize + 1).unchecked_sub(layout.align()) } / layout.size()
+    {
         return Layout::from_size_align(1, 0); // returns always Err(LayoutError)
     }
     let array_size = unsafe { layout.size().unchecked_mul(page_size) };
-    unsafe { Ok(Layout::from_size_align_unchecked(array_size, layout.align())) }
+    unsafe {
+        Ok(Layout::from_size_align_unchecked(
+            array_size,
+            layout.align(),
+        ))
+    }
 }
 #[inline(always)]
 fn offset_in_page(page: *mut u8, layout: Layout, index: usize) -> *mut u8 {
-    unsafe { page.byte_add(layout.size()*index) }
+    unsafe { page.byte_add(layout.size() * index) }
 }
 
 unsafe impl<A: Allocator> Allocator for PagedAllocator<A> {
@@ -107,15 +115,22 @@ unsafe impl<A: Allocator> Allocator for PagedAllocator<A> {
             debug_assert!(*head.layout.as_ref().unwrap() == layout);
         }
         if let Some(avail_index) = head.available_pages.pop() {
-            return Ok(unsafe { NonNull::new_unchecked(slice_from_raw_parts_mut(avail_index, layout.size())) });
+            return Ok(unsafe {
+                NonNull::new_unchecked(slice_from_raw_parts_mut(avail_index, layout.size()))
+            });
         }
-        let new_page = head.alloc.allocate(create_page_layout(layout, head.page_size).unwrap())?;
+        let new_page = head
+            .alloc
+            .allocate(create_page_layout(layout, head.page_size).unwrap())?;
         for i in 0..head.page_size {
-            head.available_pages.push(offset_in_page(new_page.as_ptr().cast(), layout, i));
+            head.available_pages
+                .push(offset_in_page(new_page.as_ptr().cast(), layout, i));
         }
         head.pages.push(new_page.as_ptr().cast());
         if let Some(avail_index) = head.available_pages.pop() {
-            return Ok(unsafe { NonNull::new_unchecked(slice_from_raw_parts_mut(avail_index, layout.size())) });
+            return Ok(unsafe {
+                NonNull::new_unchecked(slice_from_raw_parts_mut(avail_index, layout.size()))
+            });
         }
         unreachable!()
     }
@@ -137,15 +152,22 @@ unsafe impl<A: Allocator> Allocator for LocalPagedAllocator<A> {
             debug_assert!(*head.layout.as_ref().unwrap() == layout);
         }
         if let Some(avail_index) = head.available_pages.pop() {
-            return Ok(unsafe { NonNull::new_unchecked(slice_from_raw_parts_mut(avail_index, layout.size())) });
+            return Ok(unsafe {
+                NonNull::new_unchecked(slice_from_raw_parts_mut(avail_index, layout.size()))
+            });
         }
-        let new_page = head.alloc.allocate(create_page_layout(layout, head.page_size).unwrap())?;
+        let new_page = head
+            .alloc
+            .allocate(create_page_layout(layout, head.page_size).unwrap())?;
         for i in 0..head.page_size {
-            head.available_pages.push(offset_in_page(new_page.as_ptr().cast(), layout, i));
+            head.available_pages
+                .push(offset_in_page(new_page.as_ptr().cast(), layout, i));
         }
         head.pages.push(new_page.as_ptr().cast());
         if let Some(avail_index) = head.available_pages.pop() {
-            return Ok(unsafe { NonNull::new_unchecked(slice_from_raw_parts_mut(avail_index, layout.size())) });
+            return Ok(unsafe {
+                NonNull::new_unchecked(slice_from_raw_parts_mut(avail_index, layout.size()))
+            });
         }
         unreachable!()
     }
@@ -160,8 +182,11 @@ unsafe impl<A: Allocator> Allocator for LocalPagedAllocator<A> {
 
 impl<A: Allocator> Drop for PagedAllocatorHead<A> {
     fn drop(&mut self) {
-        if self.available_pages.len() != self.pages.len()*self.page_size {
-            godot_error!("PagedAllocatorHead::<A>: {} leaked pages at exit.", self.pages.len());
+        if self.available_pages.len() != self.pages.len() * self.page_size {
+            godot_error!(
+                "PagedAllocatorHead::<A>: {} leaked pages at exit.",
+                self.pages.len()
+            );
             godot_error!("Failed to deallocate pages, pages still in use.");
             return; // Do not perform the unsafe allocation if pages remain in use
         }
