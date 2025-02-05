@@ -7,8 +7,13 @@ use std::panic::{RefUnwindSafe, UnwindSafe};
 use std::ptr::{addr_eq, NonNull};
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use crate::core::{fat_to_metadata, inheritance_cast_to_mut, inheritance_is_of_type, thin_to_fat_mut};
-use crate::core::{alloc::{Allocator, Global}, null_mut, InheritanceBase};
+use crate::core::{
+    alloc::{Allocator, Global},
+    null_mut, InheritanceBase,
+};
+use crate::core::{
+    fat_to_metadata, inheritance_cast_to_mut, inheritance_is_of_type, thin_to_fat_mut,
+};
 
 fn create_layout_for_header(layout: Layout) -> Layout {
     Layout::new::<IrcHead<()>>().extend(layout).unwrap().0
@@ -21,7 +26,7 @@ pub struct IrcHead<T: ?Sized> {
     strong: AtomicU32,
     weak: AtomicU32,
     base: *mut dyn InheritanceBase,
-    data: ManuallyDrop<T>
+    data: ManuallyDrop<T>,
 }
 
 impl<T: Sized + InheritanceBase> IrcHead<T> {
@@ -37,16 +42,18 @@ impl<T: Sized + InheritanceBase> IrcHead<T> {
                 strong: AtomicU32::new(1),
                 weak: AtomicU32::new(1),
                 base: null_mut(),
-                data: ManuallyDrop::new(value)
+                data: ManuallyDrop::new(value),
             });
-            ptr.as_ptr().as_mut().unwrap_unchecked().base = (&raw mut ptr.as_ptr().as_mut().unwrap_unchecked().data) as *mut T as *mut dyn InheritanceBase;
+            ptr.as_ptr().as_mut().unwrap_unchecked().base =
+                (&raw mut ptr.as_ptr().as_mut().unwrap_unchecked().data) as *mut T
+                    as *mut dyn InheritanceBase;
         }
         ptr
     }
-    fn new_cyclic<A, F>(data_fn: F, alloc: &A) -> NonNull<Self> 
-    where 
-        F: FnOnce (&IWeak<T, A>) -> T,
-        A: Allocator + Clone
+    fn new_cyclic<A, F>(data_fn: F, alloc: &A) -> NonNull<Self>
+    where
+        F: FnOnce(&IWeak<T, A>) -> T,
+        A: Allocator + Clone,
     {
         let mut ptr = alloc.allocate(Layout::new::<Self>()).unwrap().cast();
         let data_ptr;
@@ -60,16 +67,18 @@ impl<T: Sized + InheritanceBase> IrcHead<T> {
                 strong: AtomicU32::new(1),
                 weak: AtomicU32::new(2),
                 base: null_mut(),
-                data: ManuallyDrop::new(MaybeUninit::uninit().assume_init())
+                data: ManuallyDrop::new(MaybeUninit::uninit().assume_init()),
             });
-            ptr.as_ptr().as_mut().unwrap_unchecked().base = (&raw mut ptr.as_ptr().as_mut().unwrap_unchecked().data) as *mut T as *mut dyn InheritanceBase;
-            
+            ptr.as_ptr().as_mut().unwrap_unchecked().base =
+                (&raw mut ptr.as_ptr().as_mut().unwrap_unchecked().data) as *mut T
+                    as *mut dyn InheritanceBase;
+
             data_ptr = (&raw mut ptr.as_mut().data).cast();
         }
         let weak = IWeak::<T, A> {
             head: ptr,
             ptr: data_ptr,
-            alloc: alloc.clone()
+            alloc: alloc.clone(),
         };
         unsafe {
             data_ptr.write(data_fn(&weak));
@@ -77,9 +86,9 @@ impl<T: Sized + InheritanceBase> IrcHead<T> {
         ptr
     }
     fn new_cyclic_fallable<A, F, E>(data_fn: F, alloc: &A) -> Result<NonNull<Self>, E>
-    where 
-        F: FnOnce (&IWeak<T, A>) -> Result<T, E>,
-        A: Allocator + Clone
+    where
+        F: FnOnce(&IWeak<T, A>) -> Result<T, E>,
+        A: Allocator + Clone,
     {
         let mut ptr = alloc.allocate(Layout::new::<Self>()).unwrap().cast();
         let data_ptr;
@@ -93,16 +102,18 @@ impl<T: Sized + InheritanceBase> IrcHead<T> {
                 strong: AtomicU32::new(1),
                 weak: AtomicU32::new(2),
                 base: null_mut(),
-                data: ManuallyDrop::new(MaybeUninit::uninit().assume_init())
+                data: ManuallyDrop::new(MaybeUninit::uninit().assume_init()),
             });
-            ptr.as_ptr().as_mut().unwrap_unchecked().base = (&raw mut ptr.as_ptr().as_mut().unwrap_unchecked().data) as *mut T as *mut dyn InheritanceBase;
-            
+            ptr.as_ptr().as_mut().unwrap_unchecked().base =
+                (&raw mut ptr.as_ptr().as_mut().unwrap_unchecked().data) as *mut T
+                    as *mut dyn InheritanceBase;
+
             data_ptr = (&raw mut ptr.as_mut().data).cast();
         }
         let weak = IWeak::<T, A> {
             head: ptr,
             ptr: data_ptr,
-            alloc: alloc.clone()
+            alloc: alloc.clone(),
         };
         unsafe {
             let val = data_fn(&weak);
@@ -116,7 +127,10 @@ impl<T: Sized + InheritanceBase> IrcHead<T> {
         Ok(ptr)
     }
     fn new_uninit<A: Allocator>(alloc: &A) -> NonNull<IrcHead<MaybeUninit<T>>> {
-        let ptr = alloc.allocate(Layout::new::<IrcHead<MaybeUninit<T>>>()).unwrap().cast();
+        let ptr = alloc
+            .allocate(Layout::new::<IrcHead<MaybeUninit<T>>>())
+            .unwrap()
+            .cast();
         unsafe {
             ptr.write(IrcHead::<MaybeUninit<T>> {
                 layout: Layout::new::<T>(),
@@ -127,7 +141,7 @@ impl<T: Sized + InheritanceBase> IrcHead<T> {
                 strong: AtomicU32::new(1),
                 weak: AtomicU32::new(1),
                 base: null_mut(),
-                data: ManuallyDrop::new(MaybeUninit::uninit())
+                data: ManuallyDrop::new(MaybeUninit::uninit()),
             });
         }
         ptr
@@ -143,13 +157,12 @@ impl<T: ?Sized> IrcHead<T> {
 pub struct Irc<T, A = Global>
 where
     T: ?Sized,
-    A: Allocator
+    A: Allocator,
 {
     head: NonNull<IrcHead<T>>,
     ptr: *mut T,
-    alloc: A
+    alloc: A,
 }
-
 
 impl<T: RefUnwindSafe + ?Sized, A: Allocator + UnwindSafe> UnwindSafe for Irc<T, A> {}
 impl<T: RefUnwindSafe + ?Sized, A: Allocator + UnwindSafe> RefUnwindSafe for Irc<T, A> {}
@@ -159,13 +172,13 @@ impl<T: RefUnwindSafe + ?Sized, A: Allocator + UnwindSafe> RefUnwindSafe for IWe
 impl<T, A> Irc<T, A>
 where
     T: ?Sized,
-    A: Allocator
+    A: Allocator,
 {
     fn deconstruct(self) -> (NonNull<IrcHead<T>>, *mut T, A) {
         let t = ManuallyDrop::new(self);
         (t.head, t.ptr, unsafe { (&raw const t.alloc).read() })
     }
-    
+
     pub unsafe fn increment_strong_count(&self) {
         if self.head.as_ref().strong.fetch_add(1, Ordering::Acquire) == 0 {
             self.head.as_ref().weak.fetch_add(1, Ordering::Relaxed);
@@ -173,19 +186,26 @@ where
     }
     pub unsafe fn decrement_strong_count(&self) -> (bool, bool) {
         if self.head.as_ref().strong.fetch_sub(1, Ordering::Acquire) == 1 {
-            (true, self.head.as_ref().weak.fetch_sub(1, Ordering::Relaxed) == 1)
+            (
+                true,
+                self.head.as_ref().weak.fetch_sub(1, Ordering::Relaxed) == 1,
+            )
         } else {
             (false, false)
         }
     }
     unsafe fn increment_strong_count_if_exists(&self) -> bool {
-        self.head.as_ref().strong.fetch_update(Ordering::Release, Ordering::Relaxed, |x| {
-            if x == 0 {
-                None
-            } else {
-                Some(x+1)
-            }
-        }).is_ok()
+        self.head
+            .as_ref()
+            .strong
+            .fetch_update(Ordering::Release, Ordering::Relaxed, |x| {
+                if x == 0 {
+                    None
+                } else {
+                    Some(x + 1)
+                }
+            })
+            .is_ok()
     }
     pub unsafe fn increment_weak_count(&self) {
         self.head.as_ref().weak.fetch_add(1, Ordering::Relaxed);
@@ -204,13 +224,13 @@ where
 impl<T, A> IWeak<T, A>
 where
     T: ?Sized,
-    A: Allocator
+    A: Allocator,
 {
     fn deconstruct(self) -> (NonNull<IrcHead<T>>, *mut T, A) {
         let t = ManuallyDrop::new(self);
         (t.head, t.ptr, unsafe { (&raw const t.alloc).read() })
     }
-    
+
     unsafe fn increment_strong_count(&self) {
         if self.head.as_ref().strong.fetch_add(1, Ordering::Acquire) == 0 {
             self.head.as_ref().weak.fetch_add(1, Ordering::Relaxed);
@@ -218,19 +238,26 @@ where
     }
     unsafe fn decrement_strong_count(&self) -> (bool, bool) {
         if self.head.as_ref().strong.fetch_sub(1, Ordering::Acquire) == 1 {
-            (true, self.head.as_ref().weak.fetch_sub(1, Ordering::Relaxed) == 1)
+            (
+                true,
+                self.head.as_ref().weak.fetch_sub(1, Ordering::Relaxed) == 1,
+            )
         } else {
             (false, false)
         }
     }
     unsafe fn increment_strong_count_if_exists(&self) -> bool {
-        self.head.as_ref().strong.fetch_update(Ordering::Release, Ordering::Relaxed, |x| {
-            if x == 0 {
-                None
-            } else {
-                Some(x+1)
-            }
-        }).is_ok()
+        self.head
+            .as_ref()
+            .strong
+            .fetch_update(Ordering::Release, Ordering::Relaxed, |x| {
+                if x == 0 {
+                    None
+                } else {
+                    Some(x + 1)
+                }
+            })
+            .is_ok()
     }
     unsafe fn increment_weak_count(&self) {
         self.head.as_ref().weak.fetch_add(1, Ordering::Relaxed);
@@ -255,37 +282,37 @@ where
         Irc::<T> {
             head,
             ptr: unsafe { &raw const head.as_ref().data }.cast_mut().cast(),
-            alloc: Global
+            alloc: Global,
         }
     }
     pub fn new_cyclic<F>(data_fn: F) -> Self
     where
-        F: FnOnce(&IWeak<T>) -> T
+        F: FnOnce(&IWeak<T>) -> T,
     {
         let head = IrcHead::<T>::new_cyclic(data_fn, &Global);
         Irc::<T> {
             head,
             ptr: unsafe { &raw const head.as_ref().data }.cast_mut().cast(),
-            alloc: Global
+            alloc: Global,
         }
     }
     pub fn new_cyclic_fallable<F, E>(data_fn: F) -> Result<Self, E>
     where
-        F: FnOnce(&IWeak<T>) -> Result<T, E>
+        F: FnOnce(&IWeak<T>) -> Result<T, E>,
     {
         let head = IrcHead::<T>::new_cyclic_fallable(data_fn, &Global)?;
         Ok(Irc::<T> {
             head,
             ptr: unsafe { &raw const head.as_ref().data }.cast_mut().cast(),
-            alloc: Global
+            alloc: Global,
         })
     }
     pub fn new_uninit() -> Irc<MaybeUninit<T>> {
-        let head = IrcHead::<T>::new_uninit( &Global);
+        let head = IrcHead::<T>::new_uninit(&Global);
         Irc::<MaybeUninit<T>> {
             head,
             ptr: unsafe { &raw const head.as_ref().data }.cast_mut().cast(),
-            alloc: Global
+            alloc: Global,
         }
     }
 }
@@ -293,26 +320,26 @@ where
 impl<T, A> Irc<T, A>
 where
     T: Sized + InheritanceBase,
-    A: Allocator
+    A: Allocator,
 {
     pub fn new_in(value: T, alloc: A) -> Self {
         let head = IrcHead::<T>::new(value, &alloc);
         Irc::<T, A> {
             head,
             ptr: unsafe { &raw const head.as_ref().data }.cast_mut().cast(),
-            alloc
+            alloc,
         }
     }
     pub fn new_cyclic_in<F>(data_fn: F, alloc: A) -> Self
     where
         F: FnOnce(&IWeak<T, A>) -> T,
-        A: Clone
+        A: Clone,
     {
         let head = IrcHead::<T>::new_cyclic(data_fn, &alloc);
         Irc::<T, A> {
             head,
             ptr: unsafe { &raw const head.as_ref().data }.cast_mut().cast(),
-            alloc
+            alloc,
         }
     }
     pub fn new_uninit_in(alloc: A) -> Irc<MaybeUninit<T>, A> {
@@ -320,22 +347,28 @@ where
         Irc::<MaybeUninit<T>, A> {
             head,
             ptr: unsafe { &raw const head.as_ref().data }.cast_mut().cast(),
-            alloc
+            alloc,
         }
     }
 }
 
-
 impl<T, A> Irc<T, A>
 where
     T: InheritanceBase + ?Sized + 'static,
-    A: Allocator
+    A: Allocator,
 {
     pub fn cast_from_unsized<U: 'static + ?Sized>(self) -> Result<Irc<U, A>, Irc<T, A>> {
         let (head, ptr, alloc) = self.deconstruct();
         let p = head.as_ptr();
-        let metadata = fat_to_metadata(p); 
-        let base =  unsafe { head.as_ptr().as_mut().unwrap_unchecked().base.as_mut().unwrap_unchecked() };
+        let metadata = fat_to_metadata(p);
+        let base = unsafe {
+            head.as_ptr()
+                .as_mut()
+                .unwrap_unchecked()
+                .base
+                .as_mut()
+                .unwrap_unchecked()
+        };
         let result = inheritance_cast_to_mut!(base, U);
         if result.is_ok() {
             unsafe {
@@ -343,32 +376,35 @@ where
                 Ok(Irc::<U, A> {
                     head: NonNull::new_unchecked(thin_to_fat_mut(head.cast().as_ptr(), metadata)),
                     ptr: new_ptr,
-                    alloc
+                    alloc,
                 })
             }
         } else {
-            Err(Irc::<T, A> {
-                head,
-                ptr,
-                alloc
-            })
+            Err(Irc::<T, A> { head, ptr, alloc })
         }
     }
     pub fn is<U: 'static + ?Sized>(&self) -> bool {
-        let base =  unsafe { self.head.as_ref().base.as_ref().unwrap_unchecked() };
+        let base = unsafe { self.head.as_ref().base.as_ref().unwrap_unchecked() };
         inheritance_is_of_type!(base, U)
     }
 }
 impl<T, A> Irc<T, A>
 where
     T: InheritanceBase + 'static,
-    A: Allocator
+    A: Allocator,
 {
     pub fn cast_from_sized<U: 'static + ?Sized>(self) -> Result<Irc<U, A>, Irc<T, A>> {
         let (head, ptr, alloc) = self.deconstruct();
         let p = head.as_ptr();
-        let metadata = fat_to_metadata(p as *mut IrcHead<dyn InheritanceBase>); 
-        let base =  unsafe { head.as_ptr().as_mut().unwrap_unchecked().base.as_mut().unwrap_unchecked() };
+        let metadata = fat_to_metadata(p as *mut IrcHead<dyn InheritanceBase>);
+        let base = unsafe {
+            head.as_ptr()
+                .as_mut()
+                .unwrap_unchecked()
+                .base
+                .as_mut()
+                .unwrap_unchecked()
+        };
         let result = inheritance_cast_to_mut!(base, U);
         if result.is_ok() {
             unsafe {
@@ -376,15 +412,11 @@ where
                 Ok(Irc::<U, A> {
                     head: NonNull::new_unchecked(thin_to_fat_mut(head.cast().as_ptr(), metadata)),
                     ptr: new_ptr,
-                    alloc
+                    alloc,
                 })
             }
         } else {
-            Err(Irc::<T, A> {
-                head,
-                ptr,
-                alloc
-            })
+            Err(Irc::<T, A> { head, ptr, alloc })
         }
     }
 }
@@ -392,7 +424,7 @@ where
 impl<T, A> Irc<MaybeUninit<T>, A>
 where
     T: InheritanceBase,
-    A: Allocator
+    A: Allocator,
 {
     pub unsafe fn assume_init(self) -> Irc<T, A> {
         let (head, ptr, alloc) = self.deconstruct();
@@ -401,7 +433,7 @@ where
         Irc::<T, A> {
             head: head.cast(),
             ptr,
-            alloc
+            alloc,
         }
     }
 }
@@ -409,7 +441,7 @@ where
 impl<T, A> Irc<T, A>
 where
     T: ?Sized,
-    A: Allocator
+    A: Allocator,
 {
     pub unsafe fn access(&self) -> *mut T {
         self.ptr
@@ -418,7 +450,7 @@ where
 impl<T, A> Deref for Irc<T, A>
 where
     T: ?Sized,
-    A: Allocator
+    A: Allocator,
 {
     type Target = T;
 
@@ -429,7 +461,7 @@ where
 impl<T, A> Borrow<T> for Irc<T, A>
 where
     T: ?Sized,
-    A: Allocator
+    A: Allocator,
 {
     fn borrow(&self) -> &T {
         unsafe { self.ptr.as_ref().unwrap_unchecked() }
@@ -439,11 +471,17 @@ where
 impl<T, A> Irc<T, A>
 where
     T: ?Sized,
-    A: Allocator + Clone
+    A: Allocator + Clone,
 {
     pub fn downgrade(&self) -> IWeak<T, A> {
-        unsafe { self.increment_weak_count(); }
-        IWeak { head: self.head, ptr: self.ptr, alloc: self.alloc.clone() }
+        unsafe {
+            self.increment_weak_count();
+        }
+        IWeak {
+            head: self.head,
+            ptr: self.ptr,
+            alloc: self.alloc.clone(),
+        }
     }
 }
 
@@ -451,52 +489,57 @@ where
 pub struct IWeak<T, A = Global>
 where
     T: ?Sized,
-    A: Allocator
+    A: Allocator,
 {
     head: NonNull<IrcHead<T>>,
     ptr: *mut T,
-    alloc: A
+    alloc: A,
 }
 
-unsafe impl<T, A> Send for Irc<T, A> where
+unsafe impl<T, A> Send for Irc<T, A>
+where
     T: ?Sized + Send + Sync,
-    A: Allocator + Send + Sync
-{}
-unsafe impl<T, A> Sync for Irc<T, A> where
+    A: Allocator + Send + Sync,
+{
+}
+unsafe impl<T, A> Sync for Irc<T, A>
+where
     T: ?Sized + Send + Sync,
-    A: Allocator + Send + Sync
-{}
+    A: Allocator + Send + Sync,
+{
+}
 
-unsafe impl<T, A> Send for IWeak<T, A> where
+unsafe impl<T, A> Send for IWeak<T, A>
+where
     T: ?Sized + Send + Sync,
-    A: Allocator + Send + Sync
-{}
-unsafe impl<T, A> Sync for IWeak<T, A> where
+    A: Allocator + Send + Sync,
+{
+}
+unsafe impl<T, A> Sync for IWeak<T, A>
+where
     T: ?Sized + Send + Sync,
-    A: Allocator + Send + Sync
-{}
-
+    A: Allocator + Send + Sync,
+{
+}
 
 impl<T, A> Drop for Irc<T, A>
 where
     T: ?Sized,
-    A: Allocator
+    A: Allocator,
 {
     #[inline]
     fn drop(&mut self) {
-        let head = unsafe {
-            self.head.as_mut()
-        };
-        match unsafe {self.decrement_strong_count()}  {
-            (true, false) => unsafe { head.drop_in_place(); },
+        let head = unsafe { self.head.as_mut() };
+        match unsafe { self.decrement_strong_count() } {
+            (true, false) => unsafe {
+                head.drop_in_place();
+            },
             (true, true) => unsafe {
                 head.drop_in_place();
-                self.alloc.deallocate(
-                    self.head.cast(),
-                    create_layout_for_header(head.layout)
-                );
+                self.alloc
+                    .deallocate(self.head.cast(), create_layout_for_header(head.layout));
             },
-            _ => ()
+            _ => (),
         }
     }
 }
@@ -504,16 +547,16 @@ where
 impl<T, A> Drop for IWeak<T, A>
 where
     T: ?Sized,
-    A: Allocator
+    A: Allocator,
 {
     #[inline]
     fn drop(&mut self) {
         let head = unsafe { self.head.as_mut() };
         if unsafe { self.decrement_weak_count() } {
-            unsafe { self.alloc.deallocate(
-                self.head.cast(),
-                create_layout_for_header(head.layout)
-            ) };
+            unsafe {
+                self.alloc
+                    .deallocate(self.head.cast(), create_layout_for_header(head.layout))
+            };
         }
     }
 }
@@ -521,14 +564,14 @@ where
 impl<T, A> IWeak<T, A>
 where
     T: ?Sized,
-    A: Allocator + Clone
+    A: Allocator + Clone,
 {
     pub fn upgrade(&self) -> Option<Irc<T, A>> {
         if unsafe { self.increment_strong_count_if_exists() } {
             Some(Irc::<T, A> {
                 head: self.head,
                 ptr: self.ptr,
-                alloc: self.alloc.clone()
+                alloc: self.alloc.clone(),
             })
         } else {
             None
@@ -548,81 +591,83 @@ where
         IWeak {
             head: tuple.0,
             ptr: tuple.1,
-            alloc: tuple.2
+            alloc: tuple.2,
         }
     }
 }
 
-impl <T, A> Clone for Irc<T, A>
+impl<T, A> Clone for Irc<T, A>
 where
     T: ?Sized,
-    A: Allocator + Clone
+    A: Allocator + Clone,
 {
     fn clone(&self) -> Self {
-        unsafe { self.increment_strong_count(); }
+        unsafe {
+            self.increment_strong_count();
+        }
         Self {
             head: self.head,
             ptr: self.ptr,
-            alloc: self.alloc.clone()
+            alloc: self.alloc.clone(),
         }
     }
 }
-impl <T, A> Clone for IWeak<T, A>
+impl<T, A> Clone for IWeak<T, A>
 where
     T: ?Sized,
-    A: Allocator + Clone
+    A: Allocator + Clone,
 {
     fn clone(&self) -> Self {
-        unsafe { self.increment_weak_count(); }
+        unsafe {
+            self.increment_weak_count();
+        }
         Self {
             head: self.head,
             ptr: self.ptr,
-            alloc: self.alloc.clone()
+            alloc: self.alloc.clone(),
         }
     }
 }
 
-impl <T, A> Hash for Irc<T, A>
+impl<T, A> Hash for Irc<T, A>
 where
     T: ?Sized,
-    A: Allocator
+    A: Allocator,
 {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.head.hash(state);
     }
 }
 
-impl <T, A> Hash for IWeak<T, A>
+impl<T, A> Hash for IWeak<T, A>
 where
     T: ?Sized,
-    A: Allocator
+    A: Allocator,
 {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.head.hash(state);
     }
 }
 
-
-impl <T, A> PartialEq for Irc<T, A>
+impl<T, A> PartialEq for Irc<T, A>
 where
     T: ?Sized,
-    A: Allocator
+    A: Allocator,
 {
     fn eq(&self, other: &Self) -> bool {
         addr_eq(self.head.as_ptr(), other.head.as_ptr())
     }
 }
 
-impl <T, A> PartialEq for IWeak<T, A>
+impl<T, A> PartialEq for IWeak<T, A>
 where
     T: ?Sized,
-    A: Allocator
+    A: Allocator,
 {
     fn eq(&self, other: &Self) -> bool {
         addr_eq(self.head.as_ptr(), other.head.as_ptr())
     }
-
 }
 
-impl <T: ?Sized, A: Allocator> Eq for Irc<T, A> {}
-impl <T: ?Sized, A: Allocator> Eq for IWeak<T, A> {}
+impl<T: ?Sized, A: Allocator> Eq for Irc<T, A> {}
+impl<T: ?Sized, A: Allocator> Eq for IWeak<T, A> {}

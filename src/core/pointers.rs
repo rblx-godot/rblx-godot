@@ -3,14 +3,12 @@ use std::ptr::{from_raw_parts, from_raw_parts_mut, metadata};
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Debug, Clone, Copy)]
 pub struct PtrMetadata {
-    opaque: [usize; 1]
+    opaque: [usize; 1],
 }
 
 impl PtrMetadata {
     pub const unsafe fn null() -> PtrMetadata {
-        PtrMetadata {
-            opaque: [0; 1]
-        }
+        PtrMetadata { opaque: [0; 1] }
     }
     pub const fn is_null(&self) -> bool {
         self.opaque[0] == 0
@@ -25,10 +23,10 @@ const unsafe fn transmute_unchecked_unsized<A, B>(src: A) -> B {
     #[repr(C)]
     union TransmuteInlined<A, B> {
         p1: ManuallyDrop<A>,
-        p2: ManuallyDrop<B>
+        p2: ManuallyDrop<B>,
     }
     let f = TransmuteInlined::<A, B> {
-        p1: ManuallyDrop::new(src)
+        p1: ManuallyDrop::new(src),
     };
     ManuallyDrop::into_inner(f.p2)
 }
@@ -73,9 +71,9 @@ pub unsafe fn thin_to_fat_mut<T: ?Sized>(ptr: *mut u8, metadata: PtrMetadata) ->
 }
 #[inline(always)]
 pub const fn null<T: ?Sized>() -> *const T {
-    unsafe {transmute_unchecked_unsized((0usize, 0usize, 0usize))}
+    unsafe { transmute_unchecked_unsized((0usize, 0usize, 0usize)) }
 }
 #[inline(always)]
 pub const fn null_mut<T: ?Sized>() -> *mut T {
-    unsafe {transmute_unchecked_unsized((0usize, 0usize, 0usize))}
+    unsafe { transmute_unchecked_unsized((0usize, 0usize, 0usize)) }
 }

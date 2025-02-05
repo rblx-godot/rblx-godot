@@ -1,6 +1,5 @@
 use r2g_mlua::prelude::*;
 
-
 macro_rules! lua_getter {
     ($lua: ident, $prop: expr) => {
         IntoLua::into_lua($prop, $lua)
@@ -24,7 +23,9 @@ macro_rules! lua_getter {
         Ok(r2g_mlua::Value::Function($lua.create_function($func)?))
     };
     (function_async, $lua: ident, $func: expr) => {
-        Ok(r2g_mlua::Value::Function($lua.create_async_function($func)?))
+        Ok(r2g_mlua::Value::Function(
+            $lua.create_async_function($func)?,
+        ))
     };
     (function_opt, $lua: ident, $func: expr) => {
         Some({
@@ -57,81 +58,77 @@ macro_rules! lua_setter {
     (opt_clone, $lua: ident, $prop: expr) => {
         match FromLua::from_lua($prop.clone(), $lua) {
             Ok(res) => res,
-            Err(err) => return Some(Err(err))
+            Err(err) => return Some(Err(err)),
         }
     };
-    
 }
 macro_rules! lua_invalid_argument {
     ($func_name: literal, $pos: expr, $arg_name: ident, $err: expr) => {
-        LuaError::BadArgument { 
+        LuaError::BadArgument {
             to: Some($func_name.into()),
             pos: $pos,
             name: Some(stringify!($arg_name).into()),
-            cause: std::sync::Arc::new($err)
+            cause: std::sync::Arc::new($err),
         }
     };
     ($func_name: literal, $pos: expr, $arg_name: ident, $err: expr) => {
-        LuaError::BadArgument { 
+        LuaError::BadArgument {
             to: Some($func_name.into()),
             pos: $pos,
             name: Some(stringify!($arg_name).into()),
-            cause: std::sync::Arc::new($err)
+            cause: std::sync::Arc::new($err),
         }
     };
     ($func_name: literal, $pos: expr, $arg_name: ident cast to $to: ident) => {
-        LuaError::BadArgument { 
+        LuaError::BadArgument {
             to: Some($func_name.into()),
             pos: $pos,
             name: Some(stringify!($arg_name).into()),
             cause: std::sync::Arc::new(LuaError::FromLuaConversionError {
                 from: $arg_name.type_name(),
                 to: stringify!($to).into(),
-                message: None
-            })
+                message: None,
+            }),
         }
     };
     ($func_name: literal, $pos: expr, $arg_name: ident cast unknown to $to: ident) => {
-        LuaError::BadArgument { 
+        LuaError::BadArgument {
             to: Some($func_name.into()),
             pos: $pos,
             name: Some(stringify!($arg_name).into()),
             cause: std::sync::Arc::new(LuaError::FromLuaConversionError {
                 from: "",
                 to: stringify!($to).into(),
-                message: None
-            })
+                message: None,
+            }),
         }
     };
     ($func_name: literal, $pos: expr, $arg_name: ident cast $from: ident to $to: ident) => {
-        LuaError::BadArgument { 
+        LuaError::BadArgument {
             to: Some($func_name.into()),
             pos: $pos,
             name: Some(stringify!($arg_name).into()),
             cause: std::sync::Arc::new(LuaError::FromLuaConversionError {
                 from: stringify!($from),
                 to: stringify!($to).into(),
-                message: None
-            })
+                message: None,
+            }),
         }
-    }
+    };
 }
-
 
 pub(crate) fn args_to_string(args: LuaMultiValue, delimiter: &str) -> String {
     let mut iter = args
         .into_iter()
-        .map(|x|
-            String::from(x.to_string().unwrap_or("<unknown>".into()))
-        );
+        .map(|x| String::from(x.to_string().unwrap_or("<unknown>".into())));
     let first = iter.next().unwrap_or(String::default());
     iter.fold(first, |mut a, b| {
-            a.push_str(delimiter);
-            a.push_str(b.as_str());
-            a
-        })
+        a.push_str(delimiter);
+        a.push_str(b.as_str());
+        a
+    })
 }
 
 pub(crate) use lua_getter;
-pub(crate) use lua_setter;
 pub(crate) use lua_invalid_argument;
+pub(crate) use lua_setter;

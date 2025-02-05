@@ -10,7 +10,10 @@ use r2g_mlua::prelude::*;
 
 use crate::core::alloc::Allocator;
 use crate::core::lua_macros::lua_getter;
-use crate::core::{get_state, get_task_scheduler_from_lua, IWeak, Irc, IrcHead, ParallelDispatch, RwLockReadGuard, RwLockWriteGuard};
+use crate::core::{
+    get_state, get_task_scheduler_from_lua, IWeak, Irc, IrcHead, ParallelDispatch, RwLockReadGuard,
+    RwLockWriteGuard,
+};
 use crate::userdata::{ManagedRBXScriptSignal, RBXScriptSignal};
 
 use super::IObject;
@@ -24,16 +27,34 @@ pub trait IInstanceComponent: Sized {
     unsafe fn weak_to_strong_instance(ptr: WeakManagedInstance) -> ManagedInstance {
         ptr.upgrade().unwrap_unchecked()
     }
-    fn lua_get(self: &mut RwLockReadGuard<'_, Self>, ptr: &DynInstance, lua: &Lua, key: &String) -> Option<LuaResult<LuaValue>>;
-    fn lua_set(self: &mut RwLockWriteGuard<'_, Self>, ptr: &DynInstance, lua: &Lua, key: &String, value: &LuaValue) -> Option<LuaResult<()>>;
-    fn clone(self: &RwLockReadGuard<'_, Self>, lua: &Lua, new_ptr: &WeakManagedInstance) -> LuaResult<Self>;
+    fn lua_get(
+        self: &mut RwLockReadGuard<'_, Self>,
+        ptr: &DynInstance,
+        lua: &Lua,
+        key: &String,
+    ) -> Option<LuaResult<LuaValue>>;
+    fn lua_set(
+        self: &mut RwLockWriteGuard<'_, Self>,
+        ptr: &DynInstance,
+        lua: &Lua,
+        key: &String,
+        value: &LuaValue,
+    ) -> Option<LuaResult<()>>;
+    fn clone(
+        self: &RwLockReadGuard<'_, Self>,
+        lua: &Lua,
+        new_ptr: &WeakManagedInstance,
+    ) -> LuaResult<Self>;
     fn new(ptr: WeakManagedInstance, class_name: &'static str) -> Self;
 }
 
 type ReadInstanceComponent<'a> = RwLockReadGuard<'a, InstanceComponent>;
 type WriteInstanceComponent<'a> = RwLockWriteGuard<'a, InstanceComponent>;
 
-pub trait IReadInstanceComponent: Deref<Target = InstanceComponent> + Borrow<InstanceComponent> + Sized {}
+pub trait IReadInstanceComponent:
+    Deref<Target = InstanceComponent> + Borrow<InstanceComponent> + Sized
+{
+}
 
 impl<'a> IReadInstanceComponent for ReadInstanceComponent<'a> {}
 impl<'a> IReadInstanceComponent for WriteInstanceComponent<'a> {}
@@ -41,13 +62,16 @@ impl<'a> IReadInstanceComponent for WriteInstanceComponent<'a> {}
 pub trait IInstance: IObject {
     fn get_instance_component(&self) -> RwLockReadGuard<InstanceComponent>;
     fn get_instance_component_mut(&self) -> RwLockWriteGuard<InstanceComponent>;
-    
+
     fn lua_set(&self, lua: &Lua, name: String, val: LuaValue) -> LuaResult<()>;
 
     fn clone_instance(&self, lua: &Lua) -> LuaResult<ManagedInstance>;
 
     fn get_actor(&self) -> LuaResult<Option<ManagedInstance>> {
-        DynInstance::guard_find_first_ancestor_of_class(&self.get_instance_component(),"Actor".into())
+        DynInstance::guard_find_first_ancestor_of_class(
+            &self.get_instance_component(),
+            "Actor".into(),
+        )
     }
 }
 
@@ -88,7 +112,7 @@ impl DynInstance {
     pub fn set_uniqueid(&self, value: usize) -> LuaResult<()> {
         DynInstance::guard_set_uniqueid(&mut self.get_instance_component_mut(), value)
     }
-    
+
     #[inline]
     pub fn get_ancestors(&self) -> Vec<ManagedInstance> {
         DynInstance::guard_get_ancestors(&self.get_instance_component())
@@ -103,11 +127,17 @@ impl DynInstance {
     }
     #[inline]
     pub fn is_ancestor_of(&self, descendant: ManagedInstance) -> LuaResult<bool> {
-        DynInstance::is_ancestor_of_guard_guard(&self.get_instance_component(), &descendant.get_instance_component())
+        DynInstance::is_ancestor_of_guard_guard(
+            &self.get_instance_component(),
+            &descendant.get_instance_component(),
+        )
     }
     #[inline]
     pub fn is_descendant_of(&self, ancestor: ManagedInstance) -> LuaResult<bool> {
-        DynInstance::is_ancestor_of_guard_guard(&ancestor.get_instance_component(), &self.get_instance_component())
+        DynInstance::is_ancestor_of_guard_guard(
+            &ancestor.get_instance_component(),
+            &self.get_instance_component(),
+        )
     }
     #[inline]
     pub fn lock_parent(&self) {
@@ -126,27 +156,36 @@ impl DynInstance {
         DynInstance::guard_destroy(&mut self.get_instance_component_mut(), lua)
     }
 
-    
     pub fn guard_get_parent(this: &impl IReadInstanceComponent) -> Option<ManagedInstance> {
         let parent = this.parent.as_ref();
-        if parent.is_some() { unsafe {
-            let parent = parent.unwrap_unchecked().upgrade();
-            if parent.is_some() {
-                return Some(parent.unwrap_unchecked())
+        if parent.is_some() {
+            unsafe {
+                let parent = parent.unwrap_unchecked().upgrade();
+                if parent.is_some() {
+                    return Some(parent.unwrap_unchecked());
+                }
+                return None;
             }
-            return None
-        }}
+        }
         None
     }
     #[inline]
-    pub fn guard_set_parent(this: &mut WriteInstanceComponent, lua: &Lua, parent: Option<ManagedInstance>) -> LuaResult<()> {
+    pub fn guard_set_parent(
+        this: &mut WriteInstanceComponent,
+        lua: &Lua,
+        parent: Option<ManagedInstance>,
+    ) -> LuaResult<()> {
         if this.parent_locked {
             Err(LuaError::RuntimeError("Parent property is locked.".into()))
         } else {
             DynInstance::set_parent_forced(this, lua, parent)
         }
     }
-    fn set_parent_forced(this: &mut WriteInstanceComponent, lua: &Lua, parent: Option<ManagedInstance>) -> LuaResult<()> {
+    fn set_parent_forced(
+        this: &mut WriteInstanceComponent,
+        lua: &Lua,
+        parent: Option<ManagedInstance>,
+    ) -> LuaResult<()> {
         // Havent tested roblox's internal order
         // This internal order is: DescendantRemoving -> ChildRemoved -> AncestryChanged -> ChildAdded -> DescendantAdded
         if parent.is_some() {
@@ -155,7 +194,9 @@ impl DynInstance {
             let this_ptr = this._ptr.as_ref().unwrap().upgrade().unwrap();
             let _guard_release = this.guard_release();
             if DynInstance::guard_is_descendant_of(&p, this_ptr)? {
-                return Err(LuaError::RuntimeError("Invalid hierarchy while setting up instance tree.".into()))
+                return Err(LuaError::RuntimeError(
+                    "Invalid hierarchy while setting up instance tree.".into(),
+                ));
             }
         }
         if this.parent.is_some() {
@@ -164,8 +205,11 @@ impl DynInstance {
             let _ptr_this = this._ptr.as_ref().unwrap().upgrade().unwrap();
             let _guard_release = this.guard_release();
             for ancestor in ancestors {
-                ancestor.get_instance_component()
-                    .descendant_removing.write().fire(lua, (_ptr_this.clone(),))?;
+                ancestor
+                    .get_instance_component()
+                    .descendant_removing
+                    .write()
+                    .fire(lua, (_ptr_this.clone(),))?;
             }
         }
 
@@ -182,7 +226,11 @@ impl DynInstance {
                 write.children.retain(|x| *x != _ptr_this);
                 write.children_cache_dirty = true;
             }
-            old_parent.get_instance_component().child_removed.write().fire_ancestry(lua, (_ptr_this,))?;
+            old_parent
+                .get_instance_component()
+                .child_removed
+                .write()
+                .fire_ancestry(lua, (_ptr_this,))?;
         }
 
         let descendants = DynInstance::guard_get_descendants(this)?;
@@ -191,7 +239,9 @@ impl DynInstance {
         let _guard_release = this.guard_release();
         for i in descendants {
             i.get_instance_component()
-                .ancestry_changed.write().fire(lua, (_ptr_this.clone(), new_parent.clone()))?;
+                .ancestry_changed
+                .write()
+                .fire(lua, (_ptr_this.clone(), new_parent.clone()))?;
         }
         drop(_guard_release);
 
@@ -204,9 +254,17 @@ impl DynInstance {
                 write.children.push(_ptr_this.clone());
                 write.children_cache_dirty = true;
             }
-            new_parent.get_instance_component().child_added.write().fire_ancestry(lua, (_ptr_this.clone(),))?;
+            new_parent
+                .get_instance_component()
+                .child_added
+                .write()
+                .fire_ancestry(lua, (_ptr_this.clone(),))?;
             for ancestor in ancestors {
-                ancestor.get_instance_component().descendant_added.write().fire_ancestry(lua, (_ptr_this.clone(),))?;
+                ancestor
+                    .get_instance_component()
+                    .descendant_added
+                    .write()
+                    .fire_ancestry(lua, (_ptr_this.clone(),))?;
             }
         }
         Ok(())
@@ -230,7 +288,9 @@ impl DynInstance {
     }
     pub fn guard_init_uniqueid(this: &mut WriteInstanceComponent) -> LuaResult<()> {
         if this.unique_id != 0 {
-            return Err(LuaError::RuntimeError("Instance::UniqueId was previously initialized.".into()));
+            return Err(LuaError::RuntimeError(
+                "Instance::UniqueId was previously initialized.".into(),
+            ));
         }
         let mut hasher = DefaultHasher::new();
         (&raw const *this).hash(&mut hasher);
@@ -239,12 +299,14 @@ impl DynInstance {
     }
     pub fn guard_set_uniqueid(this: &mut WriteInstanceComponent, value: usize) -> LuaResult<()> {
         if this.unique_id != 0 {
-            return Err(LuaError::RuntimeError("Instance::UniqueId was previously initialized.".into()));
+            return Err(LuaError::RuntimeError(
+                "Instance::UniqueId was previously initialized.".into(),
+            ));
         }
         this.unique_id = value;
         Ok(())
     }
-    
+
     pub fn guard_get_ancestors(this: &impl IReadInstanceComponent) -> Vec<ManagedInstance> {
         let mut i = this.parent.as_ref().map(|x| x.upgrade()).flatten();
         let mut vec = Vec::new();
@@ -254,10 +316,14 @@ impl DynInstance {
         }
         vec
     }
-    pub fn guard_get_children(this: &impl IReadInstanceComponent) -> LuaResult<Vec<ManagedInstance>> {
+    pub fn guard_get_children(
+        this: &impl IReadInstanceComponent,
+    ) -> LuaResult<Vec<ManagedInstance>> {
         Ok(this.children.clone())
     }
-    pub fn guard_get_descendants(this: &impl IReadInstanceComponent) -> LuaResult<Vec<ManagedInstance>> {
+    pub fn guard_get_descendants(
+        this: &impl IReadInstanceComponent,
+    ) -> LuaResult<Vec<ManagedInstance>> {
         let mut current = DynInstance::guard_get_children(this)?;
         let mut descendants: Vec<ManagedInstance> = vec![];
         descendants.append(&mut current);
@@ -268,7 +334,7 @@ impl DynInstance {
             }
             descendants.append(&mut new_current);
             current = new_current;
-        };
+        }
         Ok(descendants)
     }
     pub fn guard_lock_parent(this: &mut WriteInstanceComponent) {
@@ -295,10 +361,10 @@ impl DynInstance {
         {
             let signal = this.destroying.clone();
             let destroying = signal.write();
-            
+
             let _guard_release = this.guard_release();
-         
-            destroying.fire(lua,())?;
+
+            destroying.fire(lua, ())?;
         }
         this.parent_locked = true;
         DynInstance::set_parent_forced(this, lua, None)?;
@@ -306,14 +372,23 @@ impl DynInstance {
         Ok(())
     }
     #[inline]
-    pub fn guard_is_ancestor_of(this: &impl IReadInstanceComponent, descendant: ManagedInstance) -> LuaResult<bool> {
+    pub fn guard_is_ancestor_of(
+        this: &impl IReadInstanceComponent,
+        descendant: ManagedInstance,
+    ) -> LuaResult<bool> {
         DynInstance::is_ancestor_of_guard_guard(this, &descendant.get_instance_component())
     }
     #[inline]
-    pub fn guard_is_descendant_of(this: &impl IReadInstanceComponent, ancestor: ManagedInstance) -> LuaResult<bool> {
+    pub fn guard_is_descendant_of(
+        this: &impl IReadInstanceComponent,
+        ancestor: ManagedInstance,
+    ) -> LuaResult<bool> {
         DynInstance::is_ancestor_of_guard_guard(&ancestor.get_instance_component(), this)
     }
-    pub fn guard_find_first_ancestor_of_class(this: &impl IReadInstanceComponent, class: String) -> LuaResult<Option<ManagedInstance>> {
+    pub fn guard_find_first_ancestor_of_class(
+        this: &impl IReadInstanceComponent,
+        class: String,
+    ) -> LuaResult<Option<ManagedInstance>> {
         for i in DynInstance::guard_get_ancestors(this) {
             if i.get_class_name() == class {
                 return Ok(Some(i));
@@ -321,9 +396,12 @@ impl DynInstance {
         }
         Ok(None)
     }
-    
+
     pub fn get_debug_id(&self, _scope_length: LuaNumber) -> LuaResult<String> {
-        Ok(format!("0x{:x}",(&raw const *self.get_instance_component()) as usize))
+        Ok(format!(
+            "0x{:x}",
+            (&raw const *self.get_instance_component()) as usize
+        ))
     }
     pub fn get_full_name(&self) -> LuaResult<String> {
         let mut hierarchy = Vec::new();
@@ -343,18 +421,30 @@ impl DynInstance {
         let ptr = write._ptr.clone().unwrap();
         write.tags.insert(tag.clone());
         drop(write);
-        get_state(lua).get_vm().get_instance_tag_table().add_tag(tag, ptr);
+        get_state(lua)
+            .get_vm()
+            .get_instance_tag_table()
+            .add_tag(tag, ptr);
         Ok(())
     }
-    
-    pub async fn wait_for_child(&self, lua: &Lua, name: String, timeout: Option<LuaNumber>) -> LuaResult<Option<ManagedInstance>> {
+
+    pub async fn wait_for_child(
+        &self,
+        lua: &Lua,
+        name: String,
+        timeout: Option<LuaNumber>,
+    ) -> LuaResult<Option<ManagedInstance>> {
         let inst = self.find_first_child(name.clone(), Some(false)).unwrap();
         if inst.is_some() {
             Ok(Some(unsafe { inst.unwrap_unchecked() }))
         } else {
             let thread = lua.current_thread();
             if timeout.is_some() {
-                get_task_scheduler_from_lua(lua).delay_thread(thread.clone(), ParallelDispatch::Default, timeout.unwrap())?;
+                get_task_scheduler_from_lua(lua).delay_thread(
+                    thread.clone(),
+                    ParallelDispatch::Default,
+                    timeout.unwrap(),
+                )?;
             }
             let i = self.get_instance_component().child_added.clone();
             let mut instance: ManagedInstance;
@@ -379,7 +469,10 @@ impl DynInstance {
         }
         Ok(None)
     }
-    pub fn find_first_ancestor_of_class(&self, class: String) -> LuaResult<Option<ManagedInstance>> {
+    pub fn find_first_ancestor_of_class(
+        &self,
+        class: String,
+    ) -> LuaResult<Option<ManagedInstance>> {
         for i in self.get_ancestors() {
             if i.get_class_name() == class {
                 return Ok(Some(i));
@@ -387,7 +480,10 @@ impl DynInstance {
         }
         Ok(None)
     }
-    pub fn find_first_ancestor_which_is_a(&self, class: String) -> LuaResult<Option<ManagedInstance>> {
+    pub fn find_first_ancestor_which_is_a(
+        &self,
+        class: String,
+    ) -> LuaResult<Option<ManagedInstance>> {
         for i in self.get_ancestors() {
             if i.is_a(&class) {
                 return Ok(Some(i));
@@ -395,7 +491,11 @@ impl DynInstance {
         }
         Ok(None)
     }
-    pub fn find_first_child(&self, name: String, recursive: Option<bool>) -> LuaResult<Option<ManagedInstance>> {
+    pub fn find_first_child(
+        &self,
+        name: String,
+        recursive: Option<bool>,
+    ) -> LuaResult<Option<ManagedInstance>> {
         if recursive.unwrap_or(false) {
             for i in self.get_children()? {
                 if i.get_name() == name {
@@ -432,9 +532,17 @@ impl DynInstance {
         Ok(None)
     }
     pub fn get_attribute(&self, attribute: String) -> LuaResult<LuaValue> {
-        Ok(self.get_instance_component().attributes.get(&attribute).unwrap_or(&LuaNil).clone())
+        Ok(self
+            .get_instance_component()
+            .attributes
+            .get(&attribute)
+            .unwrap_or(&LuaNil)
+            .clone())
     }
-    pub fn get_attribute_changed_signal(&self, attribute: String) -> LuaResult<ManagedRBXScriptSignal> {
+    pub fn get_attribute_changed_signal(
+        &self,
+        attribute: String,
+    ) -> LuaResult<ManagedRBXScriptSignal> {
         let read = self.get_instance_component();
         if let Some(event) = read.attribute_changed_table.get(&attribute) {
             Ok(event.clone())
@@ -442,24 +550,39 @@ impl DynInstance {
             drop(read);
             let mut write = self.get_instance_component_mut();
             let event = RBXScriptSignal::new();
-            write.attribute_changed_table.insert(attribute, event.clone());
+            write
+                .attribute_changed_table
+                .insert(attribute, event.clone());
             Ok(event)
         }
     }
     pub fn get_attributes(&self, lua: &Lua) -> LuaResult<LuaValue> {
-        self.get_instance_component().attributes.clone().into_lua(lua)
+        self.get_instance_component()
+            .attributes
+            .clone()
+            .into_lua(lua)
     }
     pub fn get_tags(&self) -> LuaResult<Vec<String>> {
-        Ok(self.get_instance_component().tags.iter().map(|x| x.clone()).collect())
+        Ok(self
+            .get_instance_component()
+            .tags
+            .iter()
+            .map(|x| x.clone())
+            .collect())
     }
     pub fn has_tag(&self, tag: String) -> LuaResult<bool> {
         Ok(self.get_instance_component().tags.get(&tag).is_some())
     }
-    fn is_ancestor_of_guard_guard(this: &impl IReadInstanceComponent, descendant: &impl IReadInstanceComponent) -> LuaResult<bool> {
+    fn is_ancestor_of_guard_guard(
+        this: &impl IReadInstanceComponent,
+        descendant: &impl IReadInstanceComponent,
+    ) -> LuaResult<bool> {
         let mut i = DynInstance::guard_get_parent(descendant);
         while let Some(ref parent) = i {
             let read = parent.get_instance_component();
-            if unsafe {read._ptr.as_ref().unwrap_unchecked() == this._ptr.as_ref().unwrap_unchecked()} {
+            if unsafe {
+                read._ptr.as_ref().unwrap_unchecked() == this._ptr.as_ref().unwrap_unchecked()
+            } {
                 return Ok(true);
             }
             let new_i = read.parent.as_ref().map(|x| x.upgrade()).flatten();
@@ -473,7 +596,10 @@ impl DynInstance {
         let ptr = write._ptr.clone().unwrap();
         write.tags.remove(&tag);
         drop(write);
-        get_state(lua).get_vm().get_instance_tag_table().remove_tag(tag, &ptr);
+        get_state(lua)
+            .get_vm()
+            .get_instance_tag_table()
+            .remove_tag(tag, &ptr);
         Ok(())
     }
     pub fn set_attribute(&self, lua: &Lua, attribute: String, value: LuaValue) -> LuaResult<()> {
@@ -482,9 +608,10 @@ impl DynInstance {
         let attribute_changed = write.attribute_changed.clone();
         let attribute_changed_signal = write.attribute_changed_table.get(&attribute).cloned();
         attribute_changed.write().fire(lua, (attribute,))?;
-        attribute_changed_signal.map(move |x| x.write().fire(lua, (value,))).unwrap_or(Ok(()))
+        attribute_changed_signal
+            .map(move |x| x.write().fire(lua, (value,)))
+            .unwrap_or(Ok(()))
     }
-    
 }
 
 impl Debug for DynInstance {
@@ -518,7 +645,7 @@ pub struct InstanceComponent {
     pub property_changed_table: EventsTable,
 
     attributes: HashMap<String, LuaValue>,
-    tags: HashSet<String>
+    tags: HashSet<String>,
 }
 
 impl PartialEq for DynInstance {
@@ -529,11 +656,22 @@ impl PartialEq for DynInstance {
 impl Eq for DynInstance {}
 
 impl IInstanceComponent for InstanceComponent {
-    fn lua_get(self: &mut RwLockReadGuard<'_, Self>, _: &DynInstance, lua: &Lua, key: &String) -> Option<LuaResult<LuaValue>> {
+    fn lua_get(
+        self: &mut RwLockReadGuard<'_, Self>,
+        _: &DynInstance,
+        lua: &Lua,
+        key: &String,
+    ) -> Option<LuaResult<LuaValue>> {
         Some(InstanceComponent::lua_get(self, lua, key))
     }
 
-    fn lua_set(self: &mut RwLockWriteGuard<'_, Self>, _: &DynInstance, lua: &Lua, key: &String, value: &LuaValue) -> Option<LuaResult<()>> {
+    fn lua_set(
+        self: &mut RwLockWriteGuard<'_, Self>,
+        _: &DynInstance,
+        lua: &Lua,
+        key: &String,
+        value: &LuaValue,
+    ) -> Option<LuaResult<()>> {
         Some(InstanceComponent::lua_set(self, lua, key, value.clone()))
     }
 
@@ -557,16 +695,20 @@ impl IInstanceComponent for InstanceComponent {
             descendant_added: RBXScriptSignal::new(),
             descendant_removing: RBXScriptSignal::new(),
             destroying: RBXScriptSignal::new(),
-            
+
             attribute_changed_table: EventsTable::default(),
             property_changed_table: EventsTable::default(),
 
             attributes: HashMap::default(),
-            tags: HashSet::default()
+            tags: HashSet::default(),
         };
         inst
     }
-    fn clone(self: &RwLockReadGuard<'_, Self>, lua: &Lua, ptr: &WeakManagedInstance) -> LuaResult<Self> {
+    fn clone(
+        self: &RwLockReadGuard<'_, Self>,
+        lua: &Lua,
+        ptr: &WeakManagedInstance,
+    ) -> LuaResult<Self> {
         let mut new_children = Vec::new();
         for i in self.children.iter() {
             let inst = i.clone_instance(lua);
@@ -593,145 +735,171 @@ impl IInstanceComponent for InstanceComponent {
             descendant_added: RBXScriptSignal::new(),
             descendant_removing: RBXScriptSignal::new(),
             destroying: RBXScriptSignal::new(),
-            
+
             attribute_changed_table: EventsTable::default(),
             property_changed_table: EventsTable::default(),
 
             attributes: self.attributes.clone(),
-            tags: HashSet::default()
+            tags: HashSet::default(),
         })
     }
-
 }
 
 impl InstanceComponent {
     pub fn get_instance_pointer(self: &RwLockReadGuard<'_, Self>) -> ManagedInstance {
         unsafe {
-            self._ptr.as_ref().unwrap_unchecked().upgrade().unwrap_unchecked()
+            self._ptr
+                .as_ref()
+                .unwrap_unchecked()
+                .upgrade()
+                .unwrap_unchecked()
         }
     }
     pub fn get_weak_instance_pointer(self: &RwLockReadGuard<'_, Self>) -> WeakManagedInstance {
         unsafe { self._ptr.as_ref().unwrap_unchecked().clone() }
     }
-    pub fn lua_get(self: &mut RwLockReadGuard<'_, Self>, lua: &Lua, key: &String) -> LuaResult<LuaValue> {
+    pub fn lua_get(
+        self: &mut RwLockReadGuard<'_, Self>,
+        lua: &Lua,
+        key: &String,
+    ) -> LuaResult<LuaValue> {
         match key.as_str() {
             "Archivable" => lua_getter!(lua, self.archivable),
-            "ClassName" => IntoLua::into_lua(unsafe { 
-                self._ptr.as_ref().unwrap_unchecked()
-                    .upgrade().unwrap_unchecked().get_class_name()
-                }, lua),
+            "ClassName" => IntoLua::into_lua(
+                unsafe {
+                    self._ptr
+                        .as_ref()
+                        .unwrap_unchecked()
+                        .upgrade()
+                        .unwrap_unchecked()
+                        .get_class_name()
+                },
+                lua,
+            ),
             "Name" => lua_getter!(string, lua, self.name),
             "Parent" => lua_getter!(opt_weak_clone, lua, self.parent),
 
-            "AddTag" => lua_getter!(function, lua, 
-                |lua, (this, tag): (ManagedInstance, String)| 
-                    this.add_tag(lua, tag)
+            "AddTag" => lua_getter!(
+                function,
+                lua,
+                |lua, (this, tag): (ManagedInstance, String)| this.add_tag(lua, tag)
             ),
-            "ClearAllChildren" => lua_getter!(function, lua,
-                |lua, (this, ): (ManagedInstance, )| {
-                    this.clear_all_children(lua)
-                }
-            ),
-            "Clone" => lua_getter!(function, lua,
-                |lua, (this, ): (ManagedInstance, )| 
-                    this.clone_instance(lua)
-            ),
-            "Destroy" => lua_getter!(function, lua,
-                |lua, (this, ): (ManagedInstance, )| {
-                    this.destroy(lua)
-                }
-            ),
-            "FindFirstAncestor" => lua_getter!(function, lua,
-                |_, (this, name): (ManagedInstance, String)| 
-                    this.find_first_ancestor(name)
-            ),
-            "FindFirstAncestorOfClass" => lua_getter!(function, lua,
-                |_, (this, class): (ManagedInstance, String)| 
-                    this.find_first_ancestor_of_class(class)
-            ),
-            "FindFirstAncestorWhichIsA" => lua_getter!(function, lua,
-                |_, (this, class): (ManagedInstance, String)| 
-                    this.find_first_ancestor_which_is_a(class)
-            ),
-            "FindFirstChild" => lua_getter!(function, lua,
-                |_, (this, name, recursive): (ManagedInstance, String, Option<bool>)| 
-                    this.find_first_child(name, recursive)
-            ),
-            "FindFirstChildOfClass" => lua_getter!(function, lua,
-                |_, (this, class): (ManagedInstance, String)| 
-                    this.find_first_child_of_class(class)
-            ),
-            "FindFirstChildWhichIsA" => lua_getter!(function, lua,
-                |_, (this, class): (ManagedInstance, String)| 
-                    this.find_first_ancestor_which_is_a(class)
-            ),
-            "GetActor" => lua_getter!(function, lua,
-                |_, (this,): (ManagedInstance,)| 
-                    this.get_actor()
-            ),
-            "GetAttribute" => lua_getter!(function, lua,
-                |_, (this, name): (ManagedInstance, String)| 
-                    this.get_attribute(name)
-            ),
-            "GetAttributeChangedSignal" => lua_getter!(function, lua,
-                |_, (this, attribute): (ManagedInstance, String)| {
-                    Ok(this.get_attribute_changed_signal(attribute))
+            "ClearAllChildren" => lua_getter!(function, lua, |lua, (this,): (ManagedInstance,)| {
+                this.clear_all_children(lua)
             }),
-            "GetAttributes" => lua_getter!(function, lua,
-                |lua, (this,): (ManagedInstance,)|
-                    this.get_attributes(lua)
+            "Clone" => lua_getter!(function, lua, |lua, (this,): (ManagedInstance,)| this
+                .clone_instance(lua)),
+            "Destroy" => lua_getter!(function, lua, |lua, (this,): (ManagedInstance,)| {
+                this.destroy(lua)
+            }),
+            "FindFirstAncestor" => lua_getter!(function, lua, |_,
+                                                               (this, name): (
+                ManagedInstance,
+                String
+            )| this
+                .find_first_ancestor(name)),
+            "FindFirstAncestorOfClass" => lua_getter!(function, lua, |_,
+                                                                      (this, class): (
+                ManagedInstance,
+                String
+            )| this
+                .find_first_ancestor_of_class(class)),
+            "FindFirstAncestorWhichIsA" => lua_getter!(function, lua, |_,
+                                                                       (this, class): (
+                ManagedInstance,
+                String
+            )| this
+                .find_first_ancestor_which_is_a(class)),
+            "FindFirstChild" => lua_getter!(function, lua, |_,
+                                                            (this, name, recursive): (
+                ManagedInstance,
+                String,
+                Option<bool>
+            )| this
+                .find_first_child(name, recursive)),
+            "FindFirstChildOfClass" => lua_getter!(function, lua, |_,
+                                                                   (this, class): (
+                ManagedInstance,
+                String
+            )| this
+                .find_first_child_of_class(class)),
+            "FindFirstChildWhichIsA" => lua_getter!(function, lua, |_,
+                                                                    (this, class): (
+                ManagedInstance,
+                String
+            )| this
+                .find_first_ancestor_which_is_a(class)),
+            "GetActor" => lua_getter!(function, lua, |_, (this,): (ManagedInstance,)| this
+                .get_actor()),
+            "GetAttribute" => lua_getter!(function, lua, |_,
+                                                          (this, name): (
+                ManagedInstance,
+                String
+            )| this.get_attribute(name)),
+            "GetAttributeChangedSignal" => lua_getter!(function, lua, |_,
+                                                                       (this, attribute): (
+                ManagedInstance,
+                String
+            )| {
+                Ok(this.get_attribute_changed_signal(attribute))
+            }),
+            "GetAttributes" => lua_getter!(function, lua, |lua, (this,): (ManagedInstance,)| this
+                .get_attributes(lua)),
+            "GetChildren" => lua_getter!(function, lua, |_, (this,): (ManagedInstance,)| this
+                .get_children()),
+            "GetDebugId" => lua_getter!(function, lua, |_,
+                                                        (this, scope_len): (
+                ManagedInstance,
+                LuaNumber
+            )| this.get_debug_id(scope_len)),
+            "GetDescendants" => lua_getter!(function, lua, |_, (this,): (ManagedInstance,)| this
+                .get_descendants()),
+            "GetFullName" => lua_getter!(function, lua, |_, (this,): (ManagedInstance,)| this
+                .get_full_name()),
+            "GetStyled" => lua_getter!(function, lua, |_, (_this,): (ManagedInstance,)| {
+                Err::<(), LuaError>(LuaError::RuntimeError(
+                    "todo!(): function not yet implemented".into(),
+                ))
+            }),
+            "GetTags" => lua_getter!(function, lua, |_, (this,): (ManagedInstance,)| this
+                .get_tags()),
+            "HasTag" => lua_getter!(
+                function,
+                lua,
+                |_, (this, tag): (ManagedInstance, String)| this.has_tag(tag)
             ),
-            "GetChildren" => lua_getter!(function, lua,
-                |_, (this,): (ManagedInstance,)|
-                    this.get_children()
+            "IsAncestorOf" => lua_getter!(function, lua, |_,
+                                                          (this, inst): (
+                ManagedInstance,
+                ManagedInstance
+            )| this.is_ancestor_of(inst)),
+            "IsDescendantOf" => lua_getter!(function, lua, |_,
+                                                            (this, inst): (
+                ManagedInstance,
+                ManagedInstance
+            )| this
+                .is_descendant_of(inst)),
+            "RemoveTag" => lua_getter!(
+                function,
+                lua,
+                |lua, (this, tag): (ManagedInstance, String)| this.remove_tag(lua, tag)
             ),
-            "GetDebugId" => lua_getter!(function, lua,
-                |_, (this,scope_len): (ManagedInstance,LuaNumber)|
-                    this.get_debug_id(scope_len)
-            ),
-            "GetDescendants" => lua_getter!(function, lua,
-                |_, (this,): (ManagedInstance,)|
-                    this.get_descendants()
-            ),
-            "GetFullName" => lua_getter!(function, lua,
-                |_, (this,): (ManagedInstance,)|
-                    this.get_full_name()
-            ),
-            "GetStyled" => lua_getter!(function, lua,
-                |_, (_this,): (ManagedInstance,)| {
-                    Err::<(), LuaError>(LuaError::RuntimeError("todo!(): function not yet implemented".into()))
-                }
-            ),
-            "GetTags" => lua_getter!(function, lua,
-                |_, (this,): (ManagedInstance,)|
-                    this.get_tags()
-            ),
-            "HasTag" => lua_getter!(function, lua,
-                |_, (this, tag): (ManagedInstance, String)|
-                    this.has_tag(tag)
-            ),
-            "IsAncestorOf" => lua_getter!(function, lua,
-                |_, (this, inst): (ManagedInstance, ManagedInstance)|
-                    this.is_ancestor_of(inst)
-            ),
-            "IsDescendantOf" => lua_getter!(function, lua,
-                |_, (this, inst): (ManagedInstance, ManagedInstance)|
-                    this.is_descendant_of(inst)
-            ),
-            "RemoveTag" => lua_getter!(function, lua,
-                |lua, (this, tag): (ManagedInstance, String)|
-                    this.remove_tag(lua, tag)
-            ),
-            "SetAttribute" => lua_getter!(function, lua,
-                |lua, (this, attribute, value): (ManagedInstance, String, LuaValue)|
-                    this.set_attribute(lua, attribute, value)
-            ),
-            "WaitForChild" => lua_getter!(function_async, lua,
-                async |lua, (this, child, timeout): (ManagedInstance, String, Option<LuaNumber>)| {
-                    this.wait_for_child(&lua, child, timeout).await
-                }
-            ),
-            
+            "SetAttribute" => lua_getter!(function, lua, |lua,
+                                                          (this, attribute, value): (
+                ManagedInstance,
+                String,
+                LuaValue
+            )| this
+                .set_attribute(lua, attribute, value)),
+            "WaitForChild" => lua_getter!(function_async, lua, async |lua,
+                                                                      (this, child, timeout): (
+                ManagedInstance,
+                String,
+                Option<LuaNumber>
+            )| {
+                this.wait_for_child(&lua, child, timeout).await
+            }),
+
             "AncestryChanged" => lua_getter!(clone, lua, self.ancestry_changed),
             "AttributeChanged" => lua_getter!(clone, lua, self.attribute_changed),
             "ChildAdded" => lua_getter!(clone, lua, self.child_added),
@@ -740,7 +908,7 @@ impl InstanceComponent {
             "DescendantRemoving" => lua_getter!(clone, lua, self.descendant_removing),
             "Destroying" => lua_getter!(clone, lua, self.destroying),
 
-            _ => lua_getter!(lua, self.find_first_child(key))
+            _ => lua_getter!(lua, self.find_first_child(key)),
         }
     }
 
@@ -748,8 +916,10 @@ impl InstanceComponent {
         let inst = self._ptr.as_ref().map(|x| x.upgrade()).flatten().unwrap();
         let _release = self.guard_release();
         let mut write = inst.get_instance_component_mut();
-        
-        let iter: Vec<(String, WeakManagedInstance)> = write.children.iter()
+
+        let iter: Vec<(String, WeakManagedInstance)> = write
+            .children
+            .iter()
             .map(|x| (x.get_name(), x.downgrade()))
             .collect();
         write.children_cache.clear();
@@ -759,7 +929,10 @@ impl InstanceComponent {
             }
         }
     }
-    fn find_first_child(self: &mut RwLockReadGuard<'_, Self>, key: &String) -> Option<ManagedInstance> {
+    fn find_first_child(
+        self: &mut RwLockReadGuard<'_, Self>,
+        key: &String,
+    ) -> Option<ManagedInstance> {
         if self.children_cache_dirty {
             self.remake_cache();
             self.children_cache.get(key).map(|x| x.upgrade()).flatten()
@@ -767,41 +940,62 @@ impl InstanceComponent {
             self.children_cache.get(key).map(|x| x.upgrade()).flatten()
         }
     }
-    pub fn emit_property_changed(this: &impl IReadInstanceComponent, lua: &Lua, property: &'static str, value: &LuaValue) -> LuaResult<()> {
+    pub fn emit_property_changed(
+        this: &impl IReadInstanceComponent,
+        lua: &Lua,
+        property: &'static str,
+        value: &LuaValue,
+    ) -> LuaResult<()> {
         this.changed.write().fire(lua, (property,))?;
-        this.property_changed_table.get(property)
+        this.property_changed_table
+            .get(property)
             .map(|x| x.write().fire(lua, (value,)))
             .unwrap_or(Ok(()))
     }
-    pub fn get_property_changed_signal(self: &mut RwLockReadGuard<'_, Self>, property: String) -> LuaResult<ManagedRBXScriptSignal> {
+    pub fn get_property_changed_signal(
+        self: &mut RwLockReadGuard<'_, Self>,
+        property: String,
+    ) -> LuaResult<ManagedRBXScriptSignal> {
         let read = self.property_changed_table.get(&property);
         if read.is_some() {
             Ok(read.unwrap().clone())
         } else {
             let inst = self._ptr.as_ref().map(|x| x.upgrade()).flatten().unwrap();
             let _release = self.guard_release();
-            
+
             let mut write = inst.get_instance_component_mut();
             let signal = RBXScriptSignal::new();
-            write.property_changed_table.insert(property, signal.clone());
+            write
+                .property_changed_table
+                .insert(property, signal.clone());
             Ok(signal)
         }
     }
 
-    pub fn lua_set(self: &mut RwLockWriteGuard<'_, Self>, lua: &Lua, key: &String, value: LuaValue) -> LuaResult<()> {
+    pub fn lua_set(
+        self: &mut RwLockWriteGuard<'_, Self>,
+        lua: &Lua,
+        key: &String,
+        value: LuaValue,
+    ) -> LuaResult<()> {
         match key.as_str() {
             "Archivable" => {
-                self.archivable = value.as_boolean().ok_or(LuaError::RuntimeError("bad argument to setting Archivable".into()))?;
+                self.archivable = value.as_boolean().ok_or(LuaError::RuntimeError(
+                    "bad argument to setting Archivable".into(),
+                ))?;
                 Self::emit_property_changed(self, lua, "Archivable", &value)
-            },
+            }
             "Name" => {
-                self.name = value.as_string_lossy().ok_or(LuaError::RuntimeError("bad argument to setting Name".into()))?;
+                self.name = value.as_string_lossy().ok_or(LuaError::RuntimeError(
+                    "bad argument to setting Name".into(),
+                ))?;
                 Self::emit_property_changed(self, lua, "Name", &value)
-            },
-            "Parent" => {
-                DynInstance::guard_set_parent(self, lua, FromLua::from_lua(value, lua)?)
-            },
-            _ => Err(LuaError::RuntimeError(format!("can't set property {} on object of type Instance",key.as_str())))
+            }
+            "Parent" => DynInstance::guard_set_parent(self, lua, FromLua::from_lua(value, lua)?),
+            _ => Err(LuaError::RuntimeError(format!(
+                "can't set property {} on object of type Instance",
+                key.as_str()
+            ))),
         }
     }
 }
@@ -810,7 +1004,8 @@ impl<T: IInstance, A: Allocator + Clone + Send + Sync> IWeak<T, A> {
     pub fn cast_to_instance(&self) -> IWeak<DynInstance, A> {
         let (header_raw, p_raw, alloc) = self.clone().into_inner_with_allocator();
         let p = p_raw as *mut DynInstance;
-        let header = unsafe { NonNull::new_unchecked(header_raw.as_ptr() as *mut IrcHead<DynInstance>) };
+        let header =
+            unsafe { NonNull::new_unchecked(header_raw.as_ptr() as *mut IrcHead<DynInstance>) };
         IWeak::from_inner_with_allocator((header, p, alloc))
     }
 }

@@ -1,5 +1,9 @@
 // core::alloc::Allocator, except its stable!!
-use std::{alloc::Layout, ptr::{self, NonNull}, sync::Mutex};
+use std::{
+    alloc::Layout,
+    ptr::{self, NonNull},
+    sync::Mutex,
+};
 
 #[derive(Debug, Default, PartialEq, PartialOrd, Ord, Eq, Clone, Copy)]
 pub struct AllocError;
@@ -120,7 +124,11 @@ pub unsafe trait Allocator {
         // deallocated, it cannot overlap `new_ptr`. Thus, the call to `copy_nonoverlapping` is
         // safe. The safety contract for `dealloc` must be upheld by the caller.
         unsafe {
-            ptr::copy_nonoverlapping(ptr.as_ptr(), new_ptr.cast::<u8>().as_ptr(), old_layout.size());
+            ptr::copy_nonoverlapping(
+                ptr.as_ptr(),
+                new_ptr.cast::<u8>().as_ptr(),
+                old_layout.size(),
+            );
             self.deallocate(ptr, old_layout);
         }
 
@@ -183,7 +191,11 @@ pub unsafe trait Allocator {
         // deallocated, it cannot overlap `new_ptr`. Thus, the call to `copy_nonoverlapping` is
         // safe. The safety contract for `dealloc` must be upheld by the caller.
         unsafe {
-            ptr::copy_nonoverlapping(ptr.as_ptr(), new_ptr.cast::<u8>().as_ptr(), old_layout.size());
+            ptr::copy_nonoverlapping(
+                ptr.as_ptr(),
+                new_ptr.cast::<u8>().as_ptr(),
+                old_layout.size(),
+            );
             self.deallocate(ptr, old_layout);
         }
 
@@ -247,7 +259,11 @@ pub unsafe trait Allocator {
         // deallocated, it cannot overlap `new_ptr`. Thus, the call to `copy_nonoverlapping` is
         // safe. The safety contract for `dealloc` must be upheld by the caller.
         unsafe {
-            ptr::copy_nonoverlapping(ptr.as_ptr(), new_ptr.cast::<u8>().as_ptr(), new_layout.size());
+            ptr::copy_nonoverlapping(
+                ptr.as_ptr(),
+                new_ptr.cast::<u8>().as_ptr(),
+                new_layout.size(),
+            );
             self.deallocate(ptr, old_layout);
         }
 
@@ -324,53 +340,73 @@ pub struct MultiThreadedAllocator<T: ?Sized + Allocator + Send>(Mutex<T>);
 
 unsafe impl<T: ?Sized + Allocator + Send> Allocator for MultiThreadedAllocator<T> {
     fn allocate(&self, layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
-        self.0.lock().expect("failed to acquire allocator").allocate(layout)
+        self.0
+            .lock()
+            .expect("failed to acquire allocator")
+            .allocate(layout)
     }
 
     unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: Layout) {
-        self.0.lock().expect("failed to acquire allocator").deallocate(ptr, layout)
+        self.0
+            .lock()
+            .expect("failed to acquire allocator")
+            .deallocate(ptr, layout)
     }
 
     fn allocate_zeroed(&self, layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
-        self.0.lock().expect("failed to acquire allocator").allocate_zeroed(layout)
+        self.0
+            .lock()
+            .expect("failed to acquire allocator")
+            .allocate_zeroed(layout)
     }
 
     unsafe fn grow(
-            &self,
-            ptr: NonNull<u8>,
-            old_layout: Layout,
-            new_layout: Layout,
-        ) -> Result<NonNull<[u8]>, AllocError> {
-        self.0.lock().expect("failed to acquire allocator").grow(ptr, old_layout, new_layout)
+        &self,
+        ptr: NonNull<u8>,
+        old_layout: Layout,
+        new_layout: Layout,
+    ) -> Result<NonNull<[u8]>, AllocError> {
+        self.0
+            .lock()
+            .expect("failed to acquire allocator")
+            .grow(ptr, old_layout, new_layout)
     }
 
     unsafe fn grow_zeroed(
-            &self,
-            ptr: NonNull<u8>,
-            old_layout: Layout,
-            new_layout: Layout,
-        ) -> Result<NonNull<[u8]>, AllocError> {
-        self.0.lock().expect("failed to acquire allocator").grow_zeroed(ptr, old_layout, new_layout)
+        &self,
+        ptr: NonNull<u8>,
+        old_layout: Layout,
+        new_layout: Layout,
+    ) -> Result<NonNull<[u8]>, AllocError> {
+        self.0
+            .lock()
+            .expect("failed to acquire allocator")
+            .grow_zeroed(ptr, old_layout, new_layout)
     }
 
     unsafe fn shrink(
-            &self,
-            ptr: NonNull<u8>,
-            old_layout: Layout,
-            new_layout: Layout,
-        ) -> Result<NonNull<[u8]>, AllocError> {
-        self.0.lock().expect("failed to acquire allocator").shrink(ptr, old_layout, new_layout)
+        &self,
+        ptr: NonNull<u8>,
+        old_layout: Layout,
+        new_layout: Layout,
+    ) -> Result<NonNull<[u8]>, AllocError> {
+        self.0
+            .lock()
+            .expect("failed to acquire allocator")
+            .shrink(ptr, old_layout, new_layout)
     }
 }
 
 impl<T: ?Sized + Allocator + Send + Clone> Clone for MultiThreadedAllocator<T> {
     fn clone(&self) -> Self {
-        MultiThreadedAllocator::<T> (Mutex::new(self.0.lock().expect("failed to acquire allocator").clone()))
+        MultiThreadedAllocator::<T>(Mutex::new(
+            self.0.lock().expect("failed to acquire allocator").clone(),
+        ))
     }
 }
 
 impl<T: Allocator + Send> MultiThreadedAllocator<T> {
     fn new(value: T) -> MultiThreadedAllocator<T> {
-        MultiThreadedAllocator::<T> (Mutex::new(value))
+        MultiThreadedAllocator::<T>(Mutex::new(value))
     }
 }

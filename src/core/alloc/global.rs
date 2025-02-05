@@ -1,4 +1,7 @@
-use std::{alloc::{alloc, alloc_zeroed, dealloc, realloc, GlobalAlloc, Layout}, ptr::{slice_from_raw_parts_mut, NonNull}};
+use std::{
+    alloc::{alloc, alloc_zeroed, dealloc, realloc, GlobalAlloc, Layout},
+    ptr::{slice_from_raw_parts_mut, NonNull},
+};
 
 use super::{AllocError, Allocator};
 
@@ -22,8 +25,11 @@ unsafe impl GlobalAlloc for Global {
 unsafe impl Allocator for Global {
     fn allocate(&self, layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
         unsafe {
-            Ok(NonNull::new_unchecked(slice_from_raw_parts_mut(alloc(layout), layout.size())))
-        }        
+            Ok(NonNull::new_unchecked(slice_from_raw_parts_mut(
+                alloc(layout),
+                layout.size(),
+            )))
+        }
     }
 
     unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: Layout) {

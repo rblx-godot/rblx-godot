@@ -1,12 +1,18 @@
 use r2g_mlua::prelude::*;
 
-use crate::core::FastFlags;
-use crate::core::{get_state, inheritance_cast_to, FastFlag, InheritanceBase, InheritanceTable, InheritanceTableBuilder, Irc, 
-    ParallelDispatch::Synchronized, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use crate::core::lua_macros::{lua_getter, lua_invalid_argument};
+use crate::core::FastFlags;
+use crate::core::{
+    get_state, inheritance_cast_to, FastFlag, InheritanceBase, InheritanceTable,
+    InheritanceTableBuilder, Irc, ParallelDispatch::Synchronized, RwLock, RwLockReadGuard,
+    RwLockWriteGuard,
+};
 use crate::userdata::{ManagedRBXScriptSignal, RBXScriptSignal};
 
-use super::{DynInstance, IInstance, IInstanceComponent, IObject, IServiceProvider, InstanceComponent, LogService, ManagedInstance, RunService, ServiceProviderComponent, WeakManagedInstance};
+use super::{
+    DynInstance, IInstance, IInstanceComponent, IObject, IServiceProvider, InstanceComponent,
+    LogService, ManagedInstance, RunService, ServiceProviderComponent, WeakManagedInstance,
+};
 
 #[derive(Debug)]
 pub struct DataModelComponent {
@@ -18,20 +24,19 @@ pub struct DataModelComponent {
 
     pub graphics_quality_change_request: ManagedRBXScriptSignal,
     pub loaded: ManagedRBXScriptSignal,
-    is_loaded: bool
-
+    is_loaded: bool,
 }
 
 #[derive(Debug)]
 pub struct DataModel {
     instance: RwLock<InstanceComponent>,
     service_provider: RwLock<ServiceProviderComponent>,
-    data_model: RwLock<DataModelComponent>
+    data_model: RwLock<DataModelComponent>,
 }
 
 pub trait IDataModel {
-    fn get_data_model_component(&self) -> RwLockReadGuard<'_,DataModelComponent>;
-    fn get_data_model_component_mut(&self) -> RwLockWriteGuard<'_,DataModelComponent>;
+    fn get_data_model_component(&self) -> RwLockReadGuard<'_, DataModelComponent>;
+    fn get_data_model_component_mut(&self) -> RwLockWriteGuard<'_, DataModelComponent>;
 }
 
 impl InheritanceBase for DataModel {
@@ -47,15 +52,27 @@ impl InheritanceBase for DataModel {
 
 impl IObject for DataModel {
     fn lua_get(&self, lua: &Lua, name: String) -> LuaResult<LuaValue> {
-        self.data_model.read().unwrap().lua_get(self, lua, &name)
-            .or_else(|| self.service_provider.read().unwrap().lua_get(self, lua, &name))
+        self.data_model
+            .read()
+            .unwrap()
+            .lua_get(self, lua, &name)
+            .or_else(|| {
+                self.service_provider
+                    .read()
+                    .unwrap()
+                    .lua_get(self, lua, &name)
+            })
             .unwrap_or_else(|| self.instance.read().unwrap().lua_get(lua, &name))
     }
 
-    fn get_class_name(&self) -> &'static str { "DataModel" }
+    fn get_class_name(&self) -> &'static str {
+        "DataModel"
+    }
 
     fn get_property_changed_signal(&self, property: String) -> ManagedRBXScriptSignal {
-        self.get_instance_component().get_property_changed_signal(property).unwrap()
+        self.get_instance_component()
+            .get_property_changed_signal(property)
+            .unwrap()
     }
 
     fn is_a(&self, class_name: &String) -> bool {
@@ -64,7 +81,7 @@ impl IObject for DataModel {
             "ServiceProvider" => true,
             "Instance" => true,
             "Object" => true,
-            _ => false
+            _ => false,
         }
     }
 
@@ -83,8 +100,16 @@ impl IInstance for DataModel {
     }
 
     fn lua_set(&self, lua: &Lua, name: String, val: LuaValue) -> LuaResult<()> {
-        self.data_model.write().unwrap().lua_set(self, lua, &name, &val)
-            .or_else(|| self.service_provider.write().unwrap().lua_set(self, lua, &name, &val))
+        self.data_model
+            .write()
+            .unwrap()
+            .lua_set(self, lua, &name, &val)
+            .or_else(|| {
+                self.service_provider
+                    .write()
+                    .unwrap()
+                    .lua_set(self, lua, &name, &val)
+            })
             .unwrap_or_else(|| self.instance.write().unwrap().lua_set(lua, &name, val))
     }
 
@@ -104,9 +129,7 @@ impl IServiceProvider for DataModel {
 
     fn get_service(&self, service_name: String) -> LuaResult<ManagedInstance> {
         self.find_service(service_name)
-            .and_then(|x|
-                x.ok_or_else(|| LuaError::RuntimeError("Service not found".into()))
-            )
+            .and_then(|x| x.ok_or_else(|| LuaError::RuntimeError("Service not found".into())))
     }
 
     fn find_service(&self, service_name: String) -> LuaResult<Option<ManagedInstance>> {
@@ -116,11 +139,19 @@ impl IServiceProvider for DataModel {
 
 impl DataModel {
     pub fn new(flags: &FastFlags) -> Irc<DataModel> {
-        let game = Irc::new_cyclic(|x|
-            DataModel {
-                instance: RwLock::new_with_flag_auto(InstanceComponent::new(x.cast_to_instance(), "DataModel")),
-                service_provider: RwLock::new_with_flag_auto(ServiceProviderComponent::new(x.cast_to_instance(), "DataModel")),
-                data_model: RwLock::new_with_flag_auto(DataModelComponent::new(x.cast_to_instance(), "DataModel"))
+        let game = Irc::new_cyclic(|x| DataModel {
+            instance: RwLock::new_with_flag_auto(InstanceComponent::new(
+                x.cast_to_instance(),
+                "DataModel",
+            )),
+            service_provider: RwLock::new_with_flag_auto(ServiceProviderComponent::new(
+                x.cast_to_instance(),
+                "DataModel",
+            )),
+            data_model: RwLock::new_with_flag_auto(DataModelComponent::new(
+                x.cast_to_instance(),
+                "DataModel",
+            )),
         });
         DynInstance::set_name(&*game, flags.get_string(FastFlag::GameName)).unwrap();
         DynInstance::lock_parent(&*game);
@@ -138,25 +169,57 @@ impl DataModel {
         self.add_service(lua, serv.clone().cast_from_sized::<DynInstance>().unwrap())?;
         self.data_model.write().unwrap().log_service = Some(serv);
         let serv = RunService::new();
-        self.add_service(lua,serv.clone().cast_from_sized::<DynInstance>().unwrap())?;
+        self.add_service(lua, serv.clone().cast_from_sized::<DynInstance>().unwrap())?;
         self.data_model.write().unwrap().run_service = Some(serv);
         Ok(())
     }
 }
 
 impl IInstanceComponent for DataModelComponent {
-    fn lua_get(self: &mut RwLockReadGuard<'_, Self>, _ptr: &DynInstance, lua: &Lua, key: &String) -> Option<LuaResult<LuaValue>> {
+    fn lua_get(
+        self: &mut RwLockReadGuard<'_, Self>,
+        _ptr: &DynInstance,
+        lua: &Lua,
+        key: &String,
+    ) -> Option<LuaResult<LuaValue>> {
         match key.as_str() {
-            "CreatorId" => Some(lua_getter!(lua, get_state(lua).flags().get_int(FastFlag::CreatorId))),
+            "CreatorId" => Some(lua_getter!(
+                lua,
+                get_state(lua).flags().get_int(FastFlag::CreatorId)
+            )),
             "CreatorType" => todo!(),
-            "GameId" => Some(lua_getter!(lua, get_state(lua).flags().get_int(FastFlag::GameId))),
-            "JobId" => Some(lua_getter!(lua, get_state(lua).flags().get_string(FastFlag::JobId))),
-            "PlaceId" => Some(lua_getter!(lua, get_state(lua).flags().get_int(FastFlag::PlaceId))),
-            "PlaceVersion" => Some(lua_getter!(lua, get_state(lua).flags().get_int(FastFlag::PlaceVersion))),
-            "PrivateServerId" => Some(lua_getter!(lua, get_state(lua).flags().get_string(FastFlag::PrivateServerId))),
-            "PrivateServerOwnerId" => Some(lua_getter!(lua, get_state(lua).flags().get_int(FastFlag::PrivateServerOwnerId))),
+            "GameId" => Some(lua_getter!(
+                lua,
+                get_state(lua).flags().get_int(FastFlag::GameId)
+            )),
+            "JobId" => Some(lua_getter!(
+                lua,
+                get_state(lua).flags().get_string(FastFlag::JobId)
+            )),
+            "PlaceId" => Some(lua_getter!(
+                lua,
+                get_state(lua).flags().get_int(FastFlag::PlaceId)
+            )),
+            "PlaceVersion" => Some(lua_getter!(
+                lua,
+                get_state(lua).flags().get_int(FastFlag::PlaceVersion)
+            )),
+            "PrivateServerId" => Some(lua_getter!(
+                lua,
+                get_state(lua).flags().get_string(FastFlag::PrivateServerId)
+            )),
+            "PrivateServerOwnerId" => Some(lua_getter!(
+                lua,
+                get_state(lua)
+                    .flags()
+                    .get_int(FastFlag::PrivateServerOwnerId)
+            )),
             "Workspace" => todo!(),
-            "BindToClose" => lua_getter!(function_opt, lua, |lua, (this, func): (ManagedInstance, LuaFunction)| {
+            "BindToClose" => lua_getter!(function_opt, lua, |lua,
+                                                             (this, func): (
+                ManagedInstance,
+                LuaFunction
+            )| {
                 inheritance_cast_to!(&*this, dyn IDataModel)
                     .map_err(|_|
                         lua_invalid_argument!("DataModel::BindToClose",1,self cast Instance to DataModel)
@@ -166,29 +229,47 @@ impl IInstanceComponent for DataModelComponent {
                     )
             }),
             "IsLoaded" => Some(Ok(LuaValue::Boolean(true))),
-            "GraphicsQualityChangeRequest" => Some(lua_getter!(clone, lua, self.graphics_quality_change_request)),
+            "GraphicsQualityChangeRequest" => Some(lua_getter!(
+                clone,
+                lua,
+                self.graphics_quality_change_request
+            )),
             "Loaded" => Some(lua_getter!(clone, lua, self.loaded)),
-            _ => None
+            _ => None,
         }
     }
 
-    fn lua_set(self: &mut RwLockWriteGuard<'_, Self>, _ptr: &DynInstance, _lua: &Lua, key: &String, _value: &LuaValue) -> Option<LuaResult<()>> {
+    fn lua_set(
+        self: &mut RwLockWriteGuard<'_, Self>,
+        _ptr: &DynInstance,
+        _lua: &Lua,
+        key: &String,
+        _value: &LuaValue,
+    ) -> Option<LuaResult<()>> {
         match key.as_str() {
-            "CreatorId" |
-            "CreatorType" |
-            "GameId" |
-            "JobId" |
-            "PlaceId" |
-            "PlaceVersion" |
-            "PrivateServerId" |
-            "PrivateServerOwnerId" |
-            "Workspace "=> Some(Err(LuaError::RuntimeError("Cannot set read only property.".into()))),
-            _ => None
+            "CreatorId"
+            | "CreatorType"
+            | "GameId"
+            | "JobId"
+            | "PlaceId"
+            | "PlaceVersion"
+            | "PrivateServerId"
+            | "PrivateServerOwnerId"
+            | "Workspace " => Some(Err(LuaError::RuntimeError(
+                "Cannot set read only property.".into(),
+            ))),
+            _ => None,
         }
     }
 
-    fn clone(self: &RwLockReadGuard<'_, Self>, _: &Lua, _: &WeakManagedInstance) -> LuaResult<Self> {
-        Err(LuaError::RuntimeError("Cannot clone DataModelComponent".into()))
+    fn clone(
+        self: &RwLockReadGuard<'_, Self>,
+        _: &Lua,
+        _: &WeakManagedInstance,
+    ) -> LuaResult<Self> {
+        Err(LuaError::RuntimeError(
+            "Cannot clone DataModelComponent".into(),
+        ))
     }
 
     fn new(_ptr: WeakManagedInstance, _class_name: &'static str) -> Self {
@@ -205,11 +286,11 @@ impl IInstanceComponent for DataModelComponent {
 }
 
 impl IDataModel for DataModel {
-    fn get_data_model_component(&self) -> RwLockReadGuard<'_,DataModelComponent> {
+    fn get_data_model_component(&self) -> RwLockReadGuard<'_, DataModelComponent> {
         self.data_model.read().unwrap()
     }
 
-    fn get_data_model_component_mut(&self) -> RwLockWriteGuard<'_,DataModelComponent> {
+    fn get_data_model_component_mut(&self) -> RwLockWriteGuard<'_, DataModelComponent> {
         self.data_model.write().unwrap()
     }
 }
@@ -219,7 +300,7 @@ impl dyn IDataModel {
         read.bind_close.write().once(lua, func, Synchronized)?;
         Ok(())
     }
-    pub fn is_loaded(&self) -> bool { 
+    pub fn is_loaded(&self) -> bool {
         self.get_data_model_component().is_loaded
     }
     pub fn fire_loaded(&self, lua: &Lua) -> LuaResult<()> {

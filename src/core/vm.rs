@@ -1,10 +1,10 @@
 use std::borrow::BorrowMut;
 use std::collections::HashMap;
+use std::marker::PhantomPinned;
 use std::mem::MaybeUninit;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::Arc;
-use std::marker::PhantomPinned;
 
 use r2g_mlua::prelude::*;
 
@@ -12,7 +12,10 @@ use crate::core::scheduler::GlobalTaskScheduler;
 use crate::instance::{DataModel, IDataModel, LogService, RunService, WeakManagedActor};
 
 use super::state::LuauState;
-use super::{FastFlag, FastFlagValue, FastFlags, InstanceReplicationTable, InstanceTagCollectionTable, Irc, RwLock, Trc, Watchdog, Weak, GLOBAL_LOCKS_OF_THREAD};
+use super::{
+    FastFlag, FastFlagValue, FastFlags, InstanceReplicationTable, InstanceTagCollectionTable, Irc,
+    RwLock, Trc, Watchdog, Weak, GLOBAL_LOCKS_OF_THREAD,
+};
 
 pub struct RblxVM {
     main_state: Trc<LuauState>,
@@ -24,11 +27,11 @@ pub struct RblxVM {
     global_lock: Arc<AtomicBool>,
 
     states_locks: HashMap<*mut LuauState, *const Trc<LuauState>>,
-    
+
     hard_wd: Watchdog,
     soft_wd: Watchdog,
 
-    _pin: PhantomPinned
+    _pin: PhantomPinned,
 }
 
 impl RblxVM {
@@ -43,26 +46,52 @@ impl RblxVM {
                 instances_tag_collection: InstanceTagCollectionTable::default(),
                 data_model: MaybeUninit::uninit(),
                 hard_wd: Watchdog::new_timeout(10.0),
-                soft_wd: Watchdog::new_timeout(1.0/60.0),
+                soft_wd: Watchdog::new_timeout(1.0 / 60.0),
                 _pin: PhantomPinned::default(),
-                flags: MaybeUninit::uninit()
+                flags: MaybeUninit::uninit(),
             }));
             vm.set_global_lock(vm.access().as_ref().unwrap().global_lock.as_ref());
             let vm_ptr = &raw mut *vm;
             let flags = FastFlags::new(vm_ptr);
             vm.get_mut().flags.write(flags);
             if let Some(table) = flags_table {
-                vm.get_mut().flags.assume_init_mut()
-                .initialize_with_table(table);
+                vm.get_mut()
+                    .flags
+                    .assume_init_mut()
+                    .initialize_with_table(table);
             }
-            vm.access().as_mut().unwrap().data_model.write(DataModel::new(vm.access().as_ref().unwrap().flags.assume_init_ref()));
+            vm.access()
+                .as_mut()
+                .unwrap()
+                .data_model
+                .write(DataModel::new(
+                    vm.access().as_ref().unwrap().flags.assume_init_ref(),
+                ));
             let main_state_ptr = vm.get_mut().main_state.access();
             let main_state_lock_ptr = &raw const vm.get_mut().main_state;
-            vm.get_mut().states_locks.insert(main_state_ptr, main_state_lock_ptr);
-            
-            vm.get_mut().main_state.access().as_mut().unwrap_unchecked().init(vm_ptr, Box::new(GlobalTaskScheduler::new()));
-            vm.access().as_ref().unwrap().data_model.assume_init_ref().init_services(vm.access().as_mut().unwrap().get_main_state().get_lua()).unwrap();
-            vm.get_mut().main_state.access().as_mut().unwrap_unchecked().bind_services();
+            vm.get_mut()
+                .states_locks
+                .insert(main_state_ptr, main_state_lock_ptr);
+
+            vm.get_mut()
+                .main_state
+                .access()
+                .as_mut()
+                .unwrap_unchecked()
+                .init(vm_ptr, Box::new(GlobalTaskScheduler::new()));
+            vm.access()
+                .as_ref()
+                .unwrap()
+                .data_model
+                .assume_init_ref()
+                .init_services(vm.access().as_mut().unwrap().get_main_state().get_lua())
+                .unwrap();
+            vm.get_mut()
+                .main_state
+                .access()
+                .as_mut()
+                .unwrap_unchecked()
+                .bind_services();
 
             vm
         }
@@ -70,13 +99,22 @@ impl RblxVM {
     pub fn get_main_state(&mut self) -> &mut LuauState {
         unsafe { &mut *self.main_state.access() }
     }
-    pub(super) fn get_state_with_rwlock(&self, ptr: *mut LuauState) -> Option<*const Trc<LuauState>> {
+    pub(super) fn get_state_with_rwlock(
+        &self,
+        ptr: *mut LuauState,
+    ) -> Option<*const Trc<LuauState>> {
         self.states_locks.get(&ptr).map(|x| *x)
     }
     unsafe fn watchdog_trip_state(state: *mut LuauState) {
-        state.as_mut().unwrap_unchecked().get_lua().set_interrupt(
-            |_| Err(LuaError::RuntimeError("script exhausted maximum execution time".into()))
-        );
+        state
+            .as_mut()
+            .unwrap_unchecked()
+            .get_lua()
+            .set_interrupt(|_| {
+                Err(LuaError::RuntimeError(
+                    "script exhausted maximum execution time".into(),
+                ))
+            });
     }
     fn watchdog_reset_state(state: &mut LuauState) {
         state.get_lua().remove_interrupt();
@@ -84,12 +122,14 @@ impl RblxVM {
     pub fn watchdog_trip(&self) {
         self.hard_wd.trip();
         // SAFETY: Luau permits setting interrupt from other threads.
-        unsafe { 
+        unsafe {
             Self::watchdog_trip_state(self.main_state.access());
-            for i in self.states.iter()
+            for i in self
+                .states
+                .iter()
                 .map(|x| x.upgrade())
                 .filter(|x| x.is_some())
-                .map(|x| x.unwrap()) 
+                .map(|x| x.unwrap())
             {
                 Self::watchdog_trip_state(i.access());
             }
@@ -97,11 +137,15 @@ impl RblxVM {
     }
     pub fn watchdog_reset(&mut self) {
         if self.hard_wd.check() {
-            Self::watchdog_reset_state(unsafe { self.main_state.access().as_mut().unwrap_unchecked() });
-            for i in self.states.iter()
-            .map(|x| x.upgrade())
-            .filter(|x| x.is_some())
-            .map(|x| x.unwrap()) 
+            Self::watchdog_reset_state(unsafe {
+                self.main_state.access().as_mut().unwrap_unchecked()
+            });
+            for i in self
+                .states
+                .iter()
+                .map(|x| x.upgrade())
+                .filter(|x| x.is_some())
+                .map(|x| x.unwrap())
             {
                 Self::watchdog_reset_state(i.write().borrow_mut());
             }
@@ -147,7 +191,11 @@ impl RblxVM {
     }
     pub(crate) fn create_sub_state(&mut self, actor: &WeakManagedActor) -> Trc<LuauState> {
         let self_rwlock = unsafe {
-            self.main_state.access().as_ref().unwrap_unchecked().get_vm_ptr()
+            self.main_state
+                .access()
+                .as_ref()
+                .unwrap_unchecked()
+                .get_vm_ptr()
         };
         let mut state = LuauState::new(self_rwlock);
         state.set_actor(actor.clone());
@@ -159,7 +207,8 @@ impl RblxVM {
         self.main_state.clone()
     }
     pub fn get_all_states(&self) -> Vec<Trc<LuauState>> {
-        self.states.iter()
+        self.states
+            .iter()
             .map(|x| x.upgrade())
             .filter(|x| x.is_some())
             .map(|x| x.unwrap())

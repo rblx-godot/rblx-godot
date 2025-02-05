@@ -1,12 +1,20 @@
 use proc_macro2::Span;
-use syn::{braced, bracketed, parse::{Parse, ParseStream}, punctuated::Punctuated, spanned::Spanned, token::{self, Brace, Bracket, Comma, Eq, Semi, Struct}, Attribute, Error, Field, Generics, Ident, LitBool, LitStr, Path, Result, Signature, Token, Visibility, WhereClause};
+use syn::{
+    braced, bracketed,
+    parse::{Parse, ParseStream},
+    punctuated::Punctuated,
+    spanned::Spanned,
+    token::{self, Brace, Bracket, Comma, Eq, Semi, Struct},
+    Attribute, Error, Field, Generics, Ident, LitBool, LitStr, Path, Result, Signature, Token,
+    Visibility, WhereClause,
+};
 
 #[derive(Debug)]
 pub enum SecurityContext {
     None,
     PluginSecurity,
     LocalUserSecurity,
-    RobloxScriptSecurity
+    RobloxScriptSecurity,
 }
 
 #[derive(Debug)]
@@ -20,7 +28,7 @@ pub struct LuaPropertyData {
     pub not_replicated: bool,
     pub transparent: bool,
     pub rust_name: Ident,
-    pub span: Span
+    pub span: Span,
 }
 
 #[derive(Debug)]
@@ -30,102 +38,121 @@ pub struct LuaFunctionData {
     pub security_context: SecurityContext,
     pub asyn: bool,
 
-    pub sig: Signature
+    pub sig: Signature,
 }
 
 pub fn parse_lua_fn_attr(attr: Attribute) -> Result<LuaFunctionData> {
-    let (
-        mut lua_name,
-        mut virt,
-        mut security_context,
-        mut asyn,
-        mut sig
-    ): (
+    let (mut lua_name, mut virt, mut security_context, mut asyn, mut sig): (
         Option<String>,
         Option<bool>,
         Option<SecurityContext>,
         Option<bool>,
-        Option<Signature>
-    ) = (
-        None,
-        None,
-        None,
-        None,
-        None
-    );
+        Option<Signature>,
+    ) = (None, None, None, None, None);
 
     attr.parse_nested_meta(|pnm| {
         let ident = match pnm.path.get_ident() {
             Some(s) => s,
-            None => {
-                return Err(pnm.error("bad option name"))
-            }
+            None => return Err(pnm.error("bad option name")),
         };
 
         let ident = ident.to_string();
 
         match ident.as_str() {
             "func" => {
-                if sig.is_some() { return Err(pnm.error("`func` specified twice or more")) }
+                if sig.is_some() {
+                    return Err(pnm.error("`func` specified twice or more"));
+                }
                 sig = Some(pnm.value()?.parse::<Signature>()?);
-            },
+            }
             "name" => {
-                if lua_name.is_some() { return Err(pnm.error("`name` specified twice or more")) }
+                if lua_name.is_some() {
+                    return Err(pnm.error("`name` specified twice or more"));
+                }
                 lua_name = Some(pnm.value()?.parse::<LitStr>()?.value());
-            },
+            }
             "virtual" => {
-                if virt.is_some() { return Err(pnm.error("`virtual` specified twice or more")) }
-                virt = Some(match pnm.value() { Ok(s) => s.parse::<LitBool>()?.value(), Err(_) => true });
-            },
+                if virt.is_some() {
+                    return Err(pnm.error("`virtual` specified twice or more"));
+                }
+                virt = Some(match pnm.value() {
+                    Ok(s) => s.parse::<LitBool>()?.value(),
+                    Err(_) => true,
+                });
+            }
             "async" => {
-                if asyn.is_some() { return Err(pnm.error("`async` specified twice or more")) }
-                asyn = Some(match pnm.value() { Ok(s) => s.parse::<LitBool>()?.value(), Err(_) => true });
-            },
+                if asyn.is_some() {
+                    return Err(pnm.error("`async` specified twice or more"));
+                }
+                asyn = Some(match pnm.value() {
+                    Ok(s) => s.parse::<LitBool>()?.value(),
+                    Err(_) => true,
+                });
+            }
             "security_context" => {
-                if security_context.is_some() { return Err(pnm.error("`security_context` specified twice or more")) }
+                if security_context.is_some() {
+                    return Err(pnm.error("`security_context` specified twice or more"));
+                }
                 let value: Ident = pnm.value()?.parse()?;
 
                 let ident = value.to_string();
                 match ident.as_str() {
                     "None" => {
                         security_context = Some(SecurityContext::None);
-                    },
+                    }
                     "PluginSecurity" => {
                         security_context = Some(SecurityContext::PluginSecurity);
-                    },
+                    }
                     "LocalUserSecurity" => {
                         security_context = Some(SecurityContext::LocalUserSecurity);
-                    },
+                    }
                     "RobloxScriptSecurity" => {
                         security_context = Some(SecurityContext::RobloxScriptSecurity);
-                    },
+                    }
                     _ => {
                         return Err(pnm.error("unknown secuirty context"));
                     }
                 }
             }
-            _ => {
-                return Err(pnm.error("bad option name"))
-            }
+            _ => return Err(pnm.error("bad option name")),
         }
         Ok(())
     })?;
-    
-    Ok(
-        LuaFunctionData {
-            lua_name: match lua_name { Some(s) => s, None => return Err(Error::new(attr.span(), "`name` is required, but was not given")) },
-            virt: virt.unwrap_or(false),
-            security_context: security_context.unwrap_or(SecurityContext::None),
-            asyn: asyn.unwrap_or(false),
-            sig: match sig { Some(s) => s, None => return Err(Error::new(attr.span(), "`func` is required, but was not given")) },
-        }
-    )
+
+    Ok(LuaFunctionData {
+        lua_name: match lua_name {
+            Some(s) => s,
+            None => {
+                return Err(Error::new(
+                    attr.span(),
+                    "`name` is required, but was not given",
+                ))
+            }
+        },
+        virt: virt.unwrap_or(false),
+        security_context: security_context.unwrap_or(SecurityContext::None),
+        asyn: asyn.unwrap_or(false),
+        sig: match sig {
+            Some(s) => s,
+            None => {
+                return Err(Error::new(
+                    attr.span(),
+                    "`func` is required, but was not given",
+                ))
+            }
+        },
+    })
 }
 
 #[derive(Debug)]
 pub enum InstanceContent {
-    RustField { rust_field: Field },
-    LuaField { lua_field: LuaPropertyData, rust_field: Field },
+    RustField {
+        rust_field: Field,
+    },
+    LuaField {
+        lua_field: LuaPropertyData,
+        rust_field: Field,
+    },
 }
 
 #[derive(Debug)]
@@ -151,7 +178,7 @@ pub enum InstanceConfigAttr {
     ParentLocked(bool, Option<Eq>, Span),
     Hierarchy(Eq, Bracket, Punctuated<syn::Path, Token![,]>, Span),
     CustomNew(bool, Option<Eq>, Span),
-    RequiresInit(bool, Option<Eq>, Span)
+    RequiresInit(bool, Option<Eq>, Span),
 }
 
 macro_rules! bool_arg {
@@ -175,23 +202,27 @@ impl Parse for InstanceConfigAttr {
         let name = ident.to_string();
 
         match name.as_str() {
-            "no_clone" => { return bool_arg!(input => NoClone | ident.span()) },
-            "parent_locked" => { return bool_arg!(input => ParentLocked | ident.span()) },
-            "custom_new" => { return bool_arg!(input => CustomNew | ident.span()) },
-            "requires_init" => { return bool_arg!(input => RequiresInit | ident.span()) },
+            "no_clone" => return bool_arg!(input => NoClone | ident.span()),
+            "parent_locked" => return bool_arg!(input => ParentLocked | ident.span()),
+            "custom_new" => return bool_arg!(input => CustomNew | ident.span()),
+            "requires_init" => return bool_arg!(input => RequiresInit | ident.span()),
             "hierarchy" => {
                 // this, will be a nightmare.
                 let equals = input.parse::<Token![=]>()?;
                 let content;
                 let brackets = bracketed!(content in input);
-                
-                let punct: Punctuated<syn::Path, Token![,]> = Punctuated::parse_terminated(&content)?;
 
-                return Ok(InstanceConfigAttr::Hierarchy(equals, brackets, punct, ident.span()))
-            },
-            _ => {
-                return Err(Error::new(ident.span(), "unknown attribute"))
+                let punct: Punctuated<syn::Path, Token![,]> =
+                    Punctuated::parse_terminated(&content)?;
+
+                return Ok(InstanceConfigAttr::Hierarchy(
+                    equals,
+                    brackets,
+                    punct,
+                    ident.span(),
+                ));
             }
+            _ => return Err(Error::new(ident.span(), "unknown attribute")),
         }
     }
 }
@@ -202,7 +233,7 @@ pub struct InstanceConfig {
     pub parent_locked: bool,
     pub hierarchy: Vec<syn::Path>,
     pub custom_new: bool,
-    pub requires_init: bool
+    pub requires_init: bool,
 }
 
 impl Parse for Instance {
@@ -229,19 +260,39 @@ impl Parse for Instance {
 }
 
 fn search_attrs_field(mut field: Field) -> Result<InstanceContent> {
-    let mut filtered: Vec<(usize, &Attribute)> = field.attrs.iter().enumerate().filter(|(_, a)| a.path().is_ident("property")).collect();
+    let mut filtered: Vec<(usize, &Attribute)> = field
+        .attrs
+        .iter()
+        .enumerate()
+        .filter(|(_, a)| a.path().is_ident("property"))
+        .collect();
 
     let field_name = field.ident.clone().unwrap();
 
     if filtered.is_empty() {
-        return Ok(InstanceContent::RustField { rust_field: field })
+        return Ok(InstanceContent::RustField { rust_field: field });
     }
 
     if filtered.len() != 1 {
-        return Err(Error::new(field.span(), format!("`instance`: expected 1 `property` specifier, got {}", filtered.len())))
+        return Err(Error::new(
+            field.span(),
+            format!(
+                "`instance`: expected 1 `property` specifier, got {}",
+                filtered.len()
+            ),
+        ));
     } else {
         let (idx, attr) = filtered.pop().unwrap();
-        let (mut name, mut readonly, mut get, mut set, mut security_context, mut default, mut not_replicated, mut transparent) = (None, None, None, None, None, None, None, None);
+        let (
+            mut name,
+            mut readonly,
+            mut get,
+            mut set,
+            mut security_context,
+            mut default,
+            mut not_replicated,
+            mut transparent,
+        ) = (None, None, None, None, None, None, None, None);
         if let Err(e) = attr.parse_nested_meta(|nested_meta| {
             let ident = nested_meta.path.require_ident()?;
             let ident = ident.to_string();
@@ -258,7 +309,7 @@ fn search_attrs_field(mut field: Field) -> Result<InstanceContent> {
                     } else {
                         return Err(nested_meta.error("already specified"));
                     }
-                },
+                }
                 "default" => {
                     if default.is_none() {
                         if let Ok(v) = nested_meta.value() {
@@ -271,7 +322,7 @@ fn search_attrs_field(mut field: Field) -> Result<InstanceContent> {
                     } else {
                         return Err(nested_meta.error("already specified"));
                     }
-                },
+                }
                 "readonly" => {
                     if let None = readonly {
                         if let Ok(ts) = nested_meta.value() {
@@ -283,7 +334,7 @@ fn search_attrs_field(mut field: Field) -> Result<InstanceContent> {
                     } else {
                         return Err(nested_meta.error("already specified"));
                     }
-                },
+                }
                 "get" => {
                     if let None = get {
                         let name: Path = nested_meta.value()?.parse()?;
@@ -291,7 +342,7 @@ fn search_attrs_field(mut field: Field) -> Result<InstanceContent> {
                     } else {
                         return Err(nested_meta.error("already specified"));
                     }
-                },
+                }
                 "set" => {
                     if let None = set {
                         let name: Path = nested_meta.value()?.parse()?;
@@ -299,7 +350,7 @@ fn search_attrs_field(mut field: Field) -> Result<InstanceContent> {
                     } else {
                         return Err(nested_meta.error("already specified"));
                     }
-                },
+                }
                 "not_replicated" => {
                     if let None = not_replicated {
                         if let Ok(ts) = nested_meta.value() {
@@ -311,7 +362,7 @@ fn search_attrs_field(mut field: Field) -> Result<InstanceContent> {
                     } else {
                         return Err(nested_meta.error("already specified"));
                     }
-                },
+                }
                 "transparent" => {
                     if let None = transparent {
                         if let Ok(ts) = nested_meta.value() {
@@ -323,7 +374,7 @@ fn search_attrs_field(mut field: Field) -> Result<InstanceContent> {
                     } else {
                         return Err(nested_meta.error("already specified"));
                     }
-                },
+                }
                 "security_context" => {
                     if let None = security_context {
                         let value: Ident = nested_meta.value()?.parse()?;
@@ -333,16 +384,16 @@ fn search_attrs_field(mut field: Field) -> Result<InstanceContent> {
                         match ident.as_str() {
                             "None" => {
                                 security_context = Some(SecurityContext::None);
-                            },
+                            }
                             "PluginSecurity" => {
                                 security_context = Some(SecurityContext::PluginSecurity);
-                            },
+                            }
                             "LocalUserSecurity" => {
                                 security_context = Some(SecurityContext::LocalUserSecurity);
-                            },
+                            }
                             "RobloxScriptSecurity" => {
                                 security_context = Some(SecurityContext::RobloxScriptSecurity);
-                            },
+                            }
                             _ => {
                                 return Err(nested_meta.error("unknown secuirty context"));
                             }
@@ -350,14 +401,14 @@ fn search_attrs_field(mut field: Field) -> Result<InstanceContent> {
                     } else {
                         return Err(nested_meta.error("already specified"));
                     }
-                },
+                }
                 _ => {
                     return Err(nested_meta.error("unknown attribute"));
                 }
             }
             Ok(())
         }) {
-            return Err(e)
+            return Err(e);
         };
 
         let lpa = LuaPropertyData {
@@ -373,12 +424,15 @@ fn search_attrs_field(mut field: Field) -> Result<InstanceContent> {
             not_replicated: not_replicated.unwrap_or(false),
             transparent: transparent.unwrap_or(false),
             span: field.span(),
-            rust_name: field_name
+            rust_name: field_name,
         };
 
         field.attrs.remove(idx);
 
-        return Ok(InstanceContent::LuaField { lua_field: lpa, rust_field: field })
+        return Ok(InstanceContent::LuaField {
+            lua_field: lpa,
+            rust_field: field,
+        });
     }
 }
 

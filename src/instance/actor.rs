@@ -1,7 +1,19 @@
 use std::collections::HashMap;
 
-use super::{pvinstance::IPVInstance, DynInstance, IInstance, IInstanceComponent, IModel, IObject, InstanceComponent, ManagedInstance, ModelComponent, PVInstanceComponent};
-use crate::{core::{get_state_with_rwlock, lua_macros::{lua_getter, lua_invalid_argument}, IWeak, InheritanceBase, InheritanceTableBuilder, Irc, LuauState, ParallelDispatch::{Desynchronized, Synchronized}, RblxVM, RwLock, RwLockReadGuard, RwLockWriteGuard, Trc}, userdata::{ManagedRBXScriptSignal, RBXScriptConnection, RBXScriptSignal}};
+use super::{
+    pvinstance::IPVInstance, DynInstance, IInstance, IInstanceComponent, IModel, IObject,
+    InstanceComponent, ManagedInstance, ModelComponent, PVInstanceComponent,
+};
+use crate::{
+    core::{
+        get_state_with_rwlock,
+        lua_macros::{lua_getter, lua_invalid_argument},
+        IWeak, InheritanceBase, InheritanceTableBuilder, Irc, LuauState,
+        ParallelDispatch::{Desynchronized, Synchronized},
+        RblxVM, RwLock, RwLockReadGuard, RwLockWriteGuard, Trc,
+    },
+    userdata::{ManagedRBXScriptSignal, RBXScriptConnection, RBXScriptSignal},
+};
 use r2g_mlua::prelude::*;
 
 pub type ManagedActor = Irc<Actor>;
@@ -13,7 +25,7 @@ pub struct Actor {
     pvinstance: RwLock<PVInstanceComponent>,
     model: RwLock<ModelComponent>,
     state: Trc<LuauState>,
-    messages_bound: RwLock<HashMap<String, ManagedRBXScriptSignal>>
+    messages_bound: RwLock<HashMap<String, ManagedRBXScriptSignal>>,
 }
 
 impl InheritanceBase for Actor {
@@ -31,41 +43,59 @@ impl InheritanceBase for Actor {
 impl IObject for Actor {
     fn lua_get(&self, lua: &Lua, name: String) -> LuaResult<LuaValue> {
         match name.as_str() {
-            "BindToMessage" => lua_getter!(function, lua, |lua, (this, topic, function): (ManagedInstance, String, LuaFunction)|
+            "BindToMessage" => lua_getter!(function, lua, |lua,
+                                                           (this, topic, function): (
+                ManagedInstance,
+                String,
+                LuaFunction
+            )| {
                 this.cast_from_unsized::<Actor>()
                     .map_err(|_| lua_invalid_argument!("Actor::BindToMessage", 1, self cast Instance to Actor))
                     .map(|this| this.bind_to_message(lua, topic, function))
-            ),
-            "BindToMessageParallel" => lua_getter!(function, lua, |lua, (this, topic, function): (ManagedInstance, String, LuaFunction)|
+            }),
+            "BindToMessageParallel" => lua_getter!(function, lua, |lua,
+                                                                   (this, topic, function): (
+                ManagedInstance,
+                String,
+                LuaFunction
+            )| {
                 this.cast_from_unsized::<Actor>()
                     .map_err(|_| lua_invalid_argument!("Actor::BindToMessageParallel", 1, self cast Instance to Actor))
                     .map(|this| this.bind_to_message_parallel(lua, topic, function))
-            ),
-            "SendMessage" => lua_getter!(function, lua, |lua, (this, topic, args): (ManagedInstance, String, LuaMultiValue)|
-                this.cast_from_unsized::<Actor>()
-                    .map_err(|_| lua_invalid_argument!("Actor::SendMessage", 1, self cast Instance to Actor))
-                    .map(|this| this.send_message(lua, topic, args))
-            ),
-            _ => self.get_model_component().lua_get(self, lua, &name)
+            }),
+            "SendMessage" => lua_getter!(function, lua, |lua,
+                                                         (this, topic, args): (
+                ManagedInstance,
+                String,
+                LuaMultiValue
+            )| this
+                .cast_from_unsized::<Actor>()
+                .map_err(
+                    |_| lua_invalid_argument!("Actor::SendMessage", 1, self cast Instance to Actor)
+                )
+                .map(|this| this.send_message(lua, topic, args))),
+            _ => self
+                .get_model_component()
+                .lua_get(self, lua, &name)
                 .or_else(|| self.get_pv_instance_component().lua_get(self, lua, &name))
-                .unwrap_or_else(|| self.get_instance_component().lua_get(lua, &name))
+                .unwrap_or_else(|| self.get_instance_component().lua_get(lua, &name)),
         }
     }
 
-    fn get_class_name(&self) -> &'static str { "Actor" }
+    fn get_class_name(&self) -> &'static str {
+        "Actor"
+    }
 
     fn get_property_changed_signal(&self, property: String) -> ManagedRBXScriptSignal {
-        self.get_instance_component().get_property_changed_signal(property).unwrap()
+        self.get_instance_component()
+            .get_property_changed_signal(property)
+            .unwrap()
     }
 
     fn is_a(&self, class_name: &String) -> bool {
         match class_name.as_str() {
-            "Object" |
-            "Instance" |
-            "PVInstance" |
-            "Model" |
-            "Actor" => true,
-            _ => false
+            "Object" | "Instance" | "PVInstance" | "Model" | "Actor" => true,
+            _ => false,
         }
     }
 
@@ -84,8 +114,12 @@ impl IInstance for Actor {
     }
 
     fn lua_set(&self, lua: &Lua, name: String, val: LuaValue) -> LuaResult<()> {
-        self.get_model_component_mut().lua_set(self, lua, &name, &val)
-            .or_else(|| self.get_pv_instance_component_mut().lua_set(self, lua, &name, &val))
+        self.get_model_component_mut()
+            .lua_set(self, lua, &name, &val)
+            .or_else(|| {
+                self.get_pv_instance_component_mut()
+                    .lua_set(self, lua, &name, &val)
+            })
             .unwrap_or_else(|| self.get_instance_component_mut().lua_set(lua, &name, val))
     }
 
@@ -95,13 +129,17 @@ impl IInstance for Actor {
             let state = self.state.read().get_vm_mut().create_sub_state(x);
             let a = Actor {
                 instance: RwLock::new_with_flag_auto(self.get_instance_component().clone(lua, &i)?),
-                pvinstance: RwLock::new_with_flag_auto(self.get_pv_instance_component().clone(lua, &i)?),
+                pvinstance: RwLock::new_with_flag_auto(
+                    self.get_pv_instance_component().clone(lua, &i)?,
+                ),
                 model: RwLock::new_with_flag_auto(self.get_model_component().clone(lua, &i)?),
                 state,
-                messages_bound: RwLock::new(HashMap::new())
+                messages_bound: RwLock::new(HashMap::new()),
             };
             Ok(a)
-        })?.cast_from_sized().unwrap())
+        })?
+        .cast_from_sized()
+        .unwrap())
     }
 
     fn get_actor(&self) -> LuaResult<Option<ManagedInstance>> {
@@ -131,20 +169,34 @@ impl IModel for Actor {
 
 impl Actor {
     pub fn new(mut vm: RwLockWriteGuard<'_, RblxVM>) -> ManagedInstance {
-        let actor: Irc<DynInstance> = Irc::new_cyclic(|x|
-            Actor {
-                instance: RwLock::new_with_flag_auto(InstanceComponent::new(x.cast_to_instance(), "Actor")),
-                pvinstance: RwLock::new_with_flag_auto(PVInstanceComponent::new(x.cast_to_instance(), "Actor")),
-                model: RwLock::new_with_flag_auto(ModelComponent::new(x.cast_to_instance(), "Actor")),
-                state: vm.create_sub_state(x),
-                messages_bound: RwLock::new(HashMap::new())
-        }).cast_from_sized().unwrap();
+        let actor: Irc<DynInstance> = Irc::new_cyclic(|x| Actor {
+            instance: RwLock::new_with_flag_auto(InstanceComponent::new(
+                x.cast_to_instance(),
+                "Actor",
+            )),
+            pvinstance: RwLock::new_with_flag_auto(PVInstanceComponent::new(
+                x.cast_to_instance(),
+                "Actor",
+            )),
+            model: RwLock::new_with_flag_auto(ModelComponent::new(x.cast_to_instance(), "Actor")),
+            state: vm.create_sub_state(x),
+            messages_bound: RwLock::new(HashMap::new()),
+        })
+        .cast_from_sized()
+        .unwrap();
         actor
     }
 
-    pub fn bind_to_message(&self, lua: &Lua, topic: String, function: LuaFunction) -> LuaResult<RBXScriptConnection> {
+    pub fn bind_to_message(
+        &self,
+        lua: &Lua,
+        topic: String,
+        function: LuaFunction,
+    ) -> LuaResult<RBXScriptConnection> {
         if *get_state_with_rwlock(lua) != self.state {
-            return Err(LuaError::RuntimeError("Cannot bind from outside of the Actor.".into()));
+            return Err(LuaError::RuntimeError(
+                "Cannot bind from outside of the Actor.".into(),
+            ));
         }
         let mut messages_bound = self.messages_bound.write().unwrap();
         if let Some(sig) = messages_bound.get(&topic) {
@@ -156,9 +208,16 @@ impl Actor {
             conn
         }
     }
-    pub fn bind_to_message_parallel(&self, lua: &Lua, topic: String, function: LuaFunction) -> LuaResult<RBXScriptConnection> {
+    pub fn bind_to_message_parallel(
+        &self,
+        lua: &Lua,
+        topic: String,
+        function: LuaFunction,
+    ) -> LuaResult<RBXScriptConnection> {
         if *get_state_with_rwlock(lua) != self.state {
-            return Err(LuaError::RuntimeError("Cannot bind from outside of the Actor.".into()));
+            return Err(LuaError::RuntimeError(
+                "Cannot bind from outside of the Actor.".into(),
+            ));
         }
         let mut messages_bound = self.messages_bound.write().unwrap();
         if let Some(sig) = messages_bound.get(&topic) {

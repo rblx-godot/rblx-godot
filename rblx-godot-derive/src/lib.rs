@@ -1,8 +1,14 @@
 use convert_case::Casing;
-use parse::{parse_lua_fn_attr, Instance, InstanceConfig, InstanceConfigAttr, LuaFunctionData, LuaPropertyData};
+use parse::{
+    parse_lua_fn_attr, Instance, InstanceConfig, InstanceConfigAttr, LuaFunctionData,
+    LuaPropertyData,
+};
 use proc_macro2::Span;
 use quote::{quote, ToTokens};
-use syn::{parse::Parser, parse_macro_input, punctuated::Punctuated, spanned::Spanned, Error, Field, Ident, ItemImpl, LitStr, Path, PathSegment, Token, TraitBound, TypeParamBound, TypeTraitObject};
+use syn::{
+    parse::Parser, parse_macro_input, punctuated::Punctuated, spanned::Spanned, Error, Field,
+    Ident, ItemImpl, LitStr, Path, PathSegment, Token, TraitBound, TypeParamBound, TypeTraitObject,
+};
 
 mod parse;
 
@@ -13,13 +19,15 @@ macro_rules! error_cattr {
 }
 
 #[proc_macro_attribute]
-pub fn instance(item: proc_macro::TokenStream, ts: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    let item: Punctuated<InstanceConfigAttr, Token![,]> = match Punctuated::parse_terminated.parse(item) {
-        Ok(s) => s,
-        Err(e) => {
-            return e.into_compile_error().into()
-        }
-    };
+pub fn instance(
+    item: proc_macro::TokenStream,
+    ts: proc_macro::TokenStream,
+) -> proc_macro::TokenStream {
+    let item: Punctuated<InstanceConfigAttr, Token![,]> =
+        match Punctuated::parse_terminated.parse(item) {
+            Ok(s) => s,
+            Err(e) => return e.into_compile_error().into(),
+        };
 
     // convert punct to conf
     let mut no_clone = None;
@@ -30,16 +38,41 @@ pub fn instance(item: proc_macro::TokenStream, ts: proc_macro::TokenStream) -> p
 
     for ca in item {
         match ca {
-            InstanceConfigAttr::NoClone(b, _, span) => if no_clone.is_none() { no_clone = Some(b) }
-                                                                    else { return error_cattr!(span, "`no_clone` specified twice").into() },
-            InstanceConfigAttr::ParentLocked(b, _eq, span) => if parent_locked.is_none() { parent_locked = Some(b) }
-                                                                    else { return error_cattr!(span, "`parent_locked` specified twice").into() },
-            InstanceConfigAttr::Hierarchy(_eq, _bracket, punctuated, span) => if hierarchy.is_none() { hierarchy = Some(punctuated.into_iter().collect()) }
-            else { return error_cattr!(span, "`hierarchy` specified twice").into() },
-            InstanceConfigAttr::CustomNew(b, _eq, span) => if custom_new.is_none() { custom_new = Some(b) }
-                                                                    else { return error_cattr!(span, "`custom_new` specified twice").into() },
-            InstanceConfigAttr::RequiresInit(b, _eq, span) => if requires_init.is_none() { requires_init = Some(b) }
-            else { return error_cattr!(span, "`requires_init` specified twice").into() }
+            InstanceConfigAttr::NoClone(b, _, span) => {
+                if no_clone.is_none() {
+                    no_clone = Some(b)
+                } else {
+                    return error_cattr!(span, "`no_clone` specified twice").into();
+                }
+            }
+            InstanceConfigAttr::ParentLocked(b, _eq, span) => {
+                if parent_locked.is_none() {
+                    parent_locked = Some(b)
+                } else {
+                    return error_cattr!(span, "`parent_locked` specified twice").into();
+                }
+            }
+            InstanceConfigAttr::Hierarchy(_eq, _bracket, punctuated, span) => {
+                if hierarchy.is_none() {
+                    hierarchy = Some(punctuated.into_iter().collect())
+                } else {
+                    return error_cattr!(span, "`hierarchy` specified twice").into();
+                }
+            }
+            InstanceConfigAttr::CustomNew(b, _eq, span) => {
+                if custom_new.is_none() {
+                    custom_new = Some(b)
+                } else {
+                    return error_cattr!(span, "`custom_new` specified twice").into();
+                }
+            }
+            InstanceConfigAttr::RequiresInit(b, _eq, span) => {
+                if requires_init.is_none() {
+                    requires_init = Some(b)
+                } else {
+                    return error_cattr!(span, "`requires_init` specified twice").into();
+                }
+            }
         }
     }
 
@@ -48,7 +81,7 @@ pub fn instance(item: proc_macro::TokenStream, ts: proc_macro::TokenStream) -> p
         parent_locked: parent_locked.unwrap_or(false),
         hierarchy: hierarchy.unwrap_or(vec![]),
         custom_new: custom_new.unwrap_or(false),
-        requires_init: requires_init.unwrap_or(false)
+        requires_init: requires_init.unwrap_or(false),
     };
     let ts1 = ts.clone(); // temporary
     let mut inst: Instance = parse_macro_input!(ts1);
@@ -62,10 +95,13 @@ pub fn instance(item: proc_macro::TokenStream, ts: proc_macro::TokenStream) -> p
         } else {
             i += 1; // Only increment if no removal
         }
-    };
+    }
 
     for attr in taken {
-        lua_fns.push(match parse_lua_fn_attr(attr) { Ok(s) => s, Err(e) => return e.into_compile_error().into() });
+        lua_fns.push(match parse_lua_fn_attr(attr) {
+            Ok(s) => s,
+            Err(e) => return e.into_compile_error().into(),
+        });
     }
 
     let mut rust_fields: Vec<Field> = vec![];
@@ -74,16 +110,25 @@ pub fn instance(item: proc_macro::TokenStream, ts: proc_macro::TokenStream) -> p
     for i in inst.contents.named {
         match i {
             parse::InstanceContent::RustField { rust_field } => rust_fields.push(rust_field),
-            parse::InstanceContent::LuaField { lua_field, rust_field } => {
+            parse::InstanceContent::LuaField {
+                lua_field,
+                rust_field,
+            } => {
                 if !lua_field.transparent {
                     rust_fields.push(rust_field);
                 }
                 lua_fields.push(lua_field);
-            },
+            }
         }
     }
 
-    let (attr, vis, struct_token, gens, ident) = (inst.attrs, inst.vis, inst.struct_token, inst.generics, inst.ident);
+    let (attr, vis, struct_token, gens, ident) = (
+        inst.attrs,
+        inst.vis,
+        inst.struct_token,
+        inst.generics,
+        inst.ident,
+    );
 
     let component_name = Ident::new(&(ident.to_string() + "Component"), ident.span());
     let trait_name = Ident::new(&("I".to_owned() + &ident.to_string()), ident.span());
@@ -98,14 +143,22 @@ pub fn instance(item: proc_macro::TokenStream, ts: proc_macro::TokenStream) -> p
     component_get_mut_name.push_str(&snake);
     component_get_mut_name.push_str("_component_mut");
 
-    let (cgn, cgmn) = (Ident::new(&component_get_name, ident.span()), Ident::new(&component_get_mut_name, ident.span()));
+    let (cgn, cgmn) = (
+        Ident::new(&component_get_name, ident.span()),
+        Ident::new(&component_get_mut_name, ident.span()),
+    );
 
-    let inherited_names: Vec<LitStr> = ic.hierarchy.iter().map(|i| {
-        LitStr::new(&i.segments.last().unwrap().ident.to_string(), i.span())
-    }).collect();
+    let inherited_names: Vec<LitStr> = ic
+        .hierarchy
+        .iter()
+        .map(|i| LitStr::new(&i.segments.last().unwrap().ident.to_string(), i.span()))
+        .collect();
 
-    let inherited: Vec<syn::Path> = ic.hierarchy.into_iter().into_iter().map(|i| {
-        syn::Path {
+    let inherited: Vec<syn::Path> = ic
+        .hierarchy
+        .into_iter()
+        .into_iter()
+        .map(|i| syn::Path {
             leading_colon: i.leading_colon,
             segments: {
                 let mut punct: Punctuated<PathSegment, Token![::]> = Punctuated::new();
@@ -116,19 +169,23 @@ pub fn instance(item: proc_macro::TokenStream, ts: proc_macro::TokenStream) -> p
                     if i < len - 1 {
                         punct.push(element);
                     } else {
-                        element.ident = Ident::new(&("I".to_owned() + &element.ident.to_string()), element.ident.span());
+                        element.ident = Ident::new(
+                            &("I".to_owned() + &element.ident.to_string()),
+                            element.ident.span(),
+                        );
                         punct.push(element);
                     }
                 }
 
                 punct
             },
-        }
-    }).collect();
+        })
+        .collect();
 
     let s = LitStr::new(&ident.to_string(), ident.span());
 
-    let iinstance_lua_get = { // todo: add more features (e.g. security enforcement)
+    let iinstance_lua_get = {
+        // todo: add more features (e.g. security enforcement)
         let mut quotes: Vec<proc_macro2::TokenStream> = vec![];
         for f in &lua_fields {
             if f.transparent {
@@ -138,7 +195,9 @@ pub fn instance(item: proc_macro::TokenStream, ts: proc_macro::TokenStream) -> p
                         #name => Some(lua_getter!(lua, #get(ptr, lua)))
                     });
                 } else {
-                    return syn::Error::new(f.span, "has no getter despite being transparent").into_compile_error().into()
+                    return syn::Error::new(f.span, "has no getter despite being transparent")
+                        .into_compile_error()
+                        .into();
                 }
             } else if let Some(get) = &f.get {
                 let name = LitStr::new(&f.name, Span::call_site());
@@ -158,7 +217,8 @@ pub fn instance(item: proc_macro::TokenStream, ts: proc_macro::TokenStream) -> p
         quotes
     };
 
-    let field_news = { // todo: finish this
+    let field_news = {
+        // todo: finish this
         let mut quotes: Vec<proc_macro2::TokenStream> = vec![];
 
         for f in &lua_fields {
@@ -174,14 +234,20 @@ pub fn instance(item: proc_macro::TokenStream, ts: proc_macro::TokenStream) -> p
                     });
                 }
             } else {
-                return syn::Error::new(f.span, "default impl required for field (use Option if you don't have one)").into_compile_error().into();
+                return syn::Error::new(
+                    f.span,
+                    "default impl required for field (use Option if you don't have one)",
+                )
+                .into_compile_error()
+                .into();
             }
         }
 
         quotes
     };
 
-    let iinstance_lua_set = { // todo: add more features (e.g. security enforcement)
+    let iinstance_lua_set = {
+        // todo: add more features (e.g. security enforcement)
         let mut quotes: Vec<proc_macro2::TokenStream> = vec![];
 
         for f in lua_fields {
@@ -224,7 +290,7 @@ pub fn instance(item: proc_macro::TokenStream, ts: proc_macro::TokenStream) -> p
                     _ => None
                 }
             }
-        
+
             fn lua_set(self: &mut crate::core::RwLockWriteGuard<'_, Self>, _ptr: &crate::instance::DynInstance, _lua: &r2g_mlua::Lua, key: &String, _value: &r2g_mlua::prelude::LuaValue) -> Option<r2g_mlua::prelude::LuaResult<()>> {
                 use r2g_mlua::prelude::IntoLua;
                 match key.as_str() {
@@ -233,7 +299,7 @@ pub fn instance(item: proc_macro::TokenStream, ts: proc_macro::TokenStream) -> p
                 }
             }
         }
-        
+
         trait #trait_name {
             fn #cgn(&self) -> crate::core::RwLockReadGuard<'_, #component_name>;
             fn #cgmn(&self) -> crate::core::RwLockWriteGuard<'_, #component_name>;
@@ -302,18 +368,18 @@ pub fn instance(item: proc_macro::TokenStream, ts: proc_macro::TokenStream) -> p
             fn get_instance_component(&self) -> crate::core::RwLockReadGuard<crate::instance::InstanceComponent> {
                 self.instance.read().unwrap()
             }
-        
+
             fn get_instance_component_mut(&self) -> crate::core::RwLockWriteGuard<crate::instance::InstanceComponent> {
                 self.instance.write().unwrap()
             }
-        
+
             fn lua_set(&self, lua: &r2g_mlua::Lua, name: String, val: r2g_mlua::prelude::LuaValue) -> r2g_mlua::prelude::LuaResult<()> {
                 use crate::instance::IInstanceComponent;
                 self.#snake_id.write().unwrap().lua_set(self, lua, &name, &val)
                     .or_else(|| self.service_provider.write().unwrap().lua_set(self, lua, &name, &val))
                     .unwrap_or_else(|| self.instance.write().unwrap().lua_set(lua, &name, val))
             }
-        
+
             fn clone_instance(&self, _: &r2g_mlua::Lua) -> r2g_mlua::prelude::LuaResult<crate::instance::ManagedInstance> {
                 todo!("implement this cleanly too (same issue applies, but if no_clone this is optional)")
             }
@@ -323,18 +389,18 @@ pub fn instance(item: proc_macro::TokenStream, ts: proc_macro::TokenStream) -> p
             fn get_service_provider_component(&self) -> crate::core::RwLockReadGuard<crate::instance::ServiceProviderComponent> {
                 self.service_provider.read().unwrap()
             }
-        
+
             fn get_service_provider_component_mut(&self) -> crate::core::RwLockWriteGuard<crate::instance::ServiceProviderComponent> {
                 self.service_provider.write().unwrap()
             }
-        
+
             fn get_service(&self, service_name: String) -> r2g_mlua::prelude::LuaResult<crate::instance::ManagedInstance> {
                 self.find_service(service_name)
                     .and_then(|x|
                         x.ok_or_else(|| r2g_mlua::prelude::LuaError::RuntimeError("Service not found".into()))
                     )
             }
-        
+
             fn find_service(&self, service_name: String) -> r2g_mlua::prelude::LuaResult<Option<crate::instance::ManagedInstance>> {
                 crate::instance::DynInstance::find_first_child_of_class(self, service_name)
             }
@@ -348,26 +414,46 @@ pub fn instance(item: proc_macro::TokenStream, ts: proc_macro::TokenStream) -> p
 // }
 
 #[proc_macro_attribute]
-pub fn methods(_item: proc_macro::TokenStream, ts: proc_macro::TokenStream) -> proc_macro::TokenStream {
+pub fn methods(
+    _item: proc_macro::TokenStream,
+    ts: proc_macro::TokenStream,
+) -> proc_macro::TokenStream {
     let mut impl_block: ItemImpl = parse_macro_input!(ts);
 
     if let syn::Type::Path(ref p) = *impl_block.self_ty {
-        let Some(id) = p.path.get_ident() else { return Error::new(impl_block.self_ty.span(), "name not ident").into_compile_error().into() };
+        let Some(id) = p.path.get_ident() else {
+            return Error::new(impl_block.self_ty.span(), "name not ident")
+                .into_compile_error()
+                .into();
+        };
         let ident = "I".to_owned() + &id.to_string();
 
         let mut path = Punctuated::new();
-        path.push(PathSegment { ident: Ident::new(&ident, id.span()), arguments: syn::PathArguments::None });
+        path.push(PathSegment {
+            ident: Ident::new(&ident, id.span()),
+            arguments: syn::PathArguments::None,
+        });
 
         let mut p = Punctuated::new();
-        p.push(TypeParamBound::Trait(TraitBound { paren_token: None, modifier: syn::TraitBoundModifier::None, lifetimes: None, path: Path { leading_colon: None, segments: path } }));
+        p.push(TypeParamBound::Trait(TraitBound {
+            paren_token: None,
+            modifier: syn::TraitBoundModifier::None,
+            lifetimes: None,
+            path: Path {
+                leading_colon: None,
+                segments: path,
+            },
+        }));
 
         impl_block.self_ty = Box::new(syn::Type::TraitObject(TypeTraitObject {
             dyn_token: Some(Token![dyn](id.span())),
             bounds: p,
         }));
-       
-        return impl_block.to_token_stream().into()
+
+        return impl_block.to_token_stream().into();
     } else {
-        return Error::new(impl_block.self_ty.span(), "unknown type name kind").into_compile_error().into()
+        return Error::new(impl_block.self_ty.span(), "unknown type name kind")
+            .into_compile_error()
+            .into();
     }
 }
