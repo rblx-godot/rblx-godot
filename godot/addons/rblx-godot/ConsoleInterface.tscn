@@ -25,7 +25,9 @@ size_flags_vertical = 3
 [node name="RichTextLabel" type="RichTextLabel" parent="ConsoleInterface/PanelContainer"]
 layout_mode = 2
 size_flags_vertical = 3
+focus_mode = 2
 scroll_following = true
+selection_enabled = true
 
 [node name="HSeparator" type="HSeparator" parent="ConsoleInterface"]
 layout_mode = 2
