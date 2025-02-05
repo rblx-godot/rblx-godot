@@ -1,15 +1,13 @@
 [package]
 name = "rblx-godot-derive"
-authors = ["Radiant", "rblx-godot contributors"]
-description = "Derive macros for rblx-godot"
-license = "Apache-2.0"
-version = "0.1.0-indev"
+version = "0.1.0"
 edition = "2021"
-repository = "https://github.com/rblx-godot/rblx-godot"
-
-[lib]
-proc-macro=true
 
 [dependencies]
+convert_case = "0.7.1"
 proc-macro2 = "1.0.93"
-syn = { version = "2.0.96", features = ["full"] }
+quote = "1.0.38"
+syn = { version = "2.0.96", features = ["full", "visit"] }
+
+[lib]
+proc-macro = true
