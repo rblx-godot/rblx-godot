@@ -23,7 +23,6 @@ use core::verify_gdext_api_compat;
 pub use godot_vm_bindings::RobloxVMNode;
 
 use godot::prelude::*;
-use roblox_to_godot_project_derive::{instance, methods};
 use rustversion_detect::RUST_VERSION;
 
 #[cfg(debug_assertions)]
@@ -87,38 +86,3 @@ unsafe impl ExtensionLibrary for RobloxToGodotProjectExtension {
         }
     }
 }
-
-#[instance(hierarchy=[crate::instance::ServiceProvider], no_clone, parent_locked)]
-#[method(func = fn some_func(), name = "SomeFunc", security_context = PluginSecurity)]
-#[method(func = fn another_func(_: String) -> usize, name = "AnotherFunc", security_context = PluginSecurity, virtual)]
-struct TestInstance {
-    #[property(name = "meow", readonly)]
-    meow: u32,
-    a_field: String,
-    #[property(name = "owo", readonly)]
-    another_field: String,
-}
-
-#[methods]
-impl TestInstance {
-    fn some_func() {}
-    fn another_func(s: String) -> usize { s.len() }
-}
-
-// impl crate::instance::IInstanceComponent for TestInstanceComponent {
-//     fn lua_get(self: &mut core::RwLockReadGuard<'_, Self>, ptr: &instance::DynInstance, lua: &r2g_mlua::Lua, key: &String) -> Option<r2g_mlua::Result<r2g_mlua::Value>> {
-//         todo!()
-//     }
-
-//     fn lua_set(self: &mut core::RwLockWriteGuard<'_, Self>, ptr: &instance::DynInstance, lua: &r2g_mlua::Lua, key: &String, value: &r2g_mlua::Value) -> Option<r2g_mlua::Result<()>> {
-//         todo!()
-//     }
-
-//     fn clone(self: &core::RwLockReadGuard<'_, Self>, new_ptr: &instance::WeakManagedInstance) -> r2g_mlua::Result<Self> {
-//         todo!()
-//     }
-
-//     fn new(ptr: instance::WeakManagedInstance, class_name: &'static str) -> Self {
-//         todo!()
-//     }
-// }
