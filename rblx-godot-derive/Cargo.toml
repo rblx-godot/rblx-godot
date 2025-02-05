@@ -1,5 +1,6 @@
 [package]
 name = "rblx-godot-derive"
+authors = ["Radiant", "Brainstorm4266", "rblx-godot contributors"]
 version = "0.1.0"
 edition = "2021"
 

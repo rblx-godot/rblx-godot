@@ -1,6 +1,6 @@
 [package]
 name = "rblx-godot"
-authors = ["Radiant", "rblx-godot contributors"]
+authors = ["Radiant", "Brainstorm4266", "rblx-godot contributors"]
 description = "Creates a roblox-compatible environment for games to run inside of."
 license = "Apache-2.0"
 readme = "README.md"
