@@ -224,6 +224,9 @@ impl Future for RBXScriptSignalFuture {
     }
 }
 impl LuaUserData for ManagedRBXScriptSignal {
+    fn add_fields<F: LuaUserDataFields<Self>>(fields: &mut F) {
+        fields.add_meta_field("__type", "RBXScriptSignal");
+    }
     fn add_methods<M: LuaUserDataMethods<Self>>(methods: &mut M) {
         methods.add_method_mut("Connect", |lua, this, func: LuaFunction| {
             this.write()
@@ -243,6 +246,8 @@ impl LuaUserData for RBXScriptConnection {
         methods.add_method_mut("Disconnect", |_, this, ()| Ok(this.disconnect()));
     }
     fn add_fields<F: LuaUserDataFields<Self>>(fields: &mut F) {
+        fields.add_meta_field("__type", "RBXScriptConnection");
+
         fields.add_field_method_get("Connected", |_, this| Ok(this.is_connected()));
     }
 }

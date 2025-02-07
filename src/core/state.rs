@@ -184,6 +184,25 @@ impl LuauState {
                     .unwrap(),
             )
             .unwrap();
+        self.lua
+            .globals()
+            .raw_set(
+                "typeof",
+                self.lua
+                    .create_function(|_, value: LuaValue| {
+                        if let Some(ud) = value.as_userdata() {
+                            Ok(ud
+                                .metatable()?
+                                .get::<Option<String>>("__type")
+                                .unwrap()
+                                .unwrap_or("userdata".to_string()))
+                        } else {
+                            Ok(value.type_name().to_string())
+                        }
+                    })
+                    .unwrap(),
+            )
+            .unwrap();
         // Task scheduler registration
         {
             type DynTaskScheduler = dyn ITaskScheduler;

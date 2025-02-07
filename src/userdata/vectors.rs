@@ -274,6 +274,8 @@ from_lua_copy_impl!(Vector2int16);
 
 impl LuaUserData for Vector2 {
     fn add_fields<F: LuaUserDataFields<Self>>(fields: &mut F) {
+        fields.add_meta_field("__type", "Vector2");
+
         fields.add_field_method_get("X", |_, this| Ok(this.x));
         fields.add_field_method_set("X", |_, this, v| {
             Ok({
@@ -399,6 +401,8 @@ impl LuaSingleton for Vector2 {
 
 impl LuaUserData for Vector2int16 {
     fn add_fields<F: LuaUserDataFields<Self>>(fields: &mut F) {
+        fields.add_meta_field("__type", "Vector2int16");
+
         fields.add_field_method_get("X", |_, this| Ok(this.x));
         fields.add_field_method_set("X", |_, this, v| {
             Ok({
@@ -791,6 +795,8 @@ impl From<Axis> for Vector3 {
 
 impl LuaUserData for Vector3 {
     fn add_fields<F: LuaUserDataFields<Self>>(fields: &mut F) {
+        fields.add_meta_field("__type", "Vector3");
+
         fields.add_field_method_get("X", |_, this| Ok(this.x));
         fields.add_field_method_set("X", |_, this, v| {
             Ok({
@@ -929,6 +935,8 @@ impl LuaSingleton for Vector3 {
 
 impl LuaUserData for Vector3int16 {
     fn add_fields<F: LuaUserDataFields<Self>>(fields: &mut F) {
+        fields.add_meta_field("__type", "Vector3int16");
+
         fields.add_field_method_get("X", |_, this| Ok(this.x));
         fields.add_field_method_set("X", |_, this, v| {
             Ok({

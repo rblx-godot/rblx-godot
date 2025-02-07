@@ -5,9 +5,7 @@ use crate::{
 
 use super::InstanceComponent;
 
-pub struct Workspace {
-    instance_component: RwLock<InstanceComponent>,
-
+pub struct WorkspaceComponent {
     pub persistent_loaded: ManagedRBXScriptSignal,
 
     air_density: f64,
@@ -43,4 +41,9 @@ pub struct Workspace {
     terrain: (),                           //todo!
     touch_events_use_collision_groups: (), //todo!
     touches_use_collision_groups: bool,
+}
+
+pub struct Workspace {
+    instance_component: RwLock<InstanceComponent>,
+    workspace_component: RwLock<WorkspaceComponent>,
 }

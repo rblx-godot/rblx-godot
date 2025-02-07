@@ -1,3 +1,5 @@
+#![feature(if_let_guard)]
+
 use convert_case::Casing;
 use parse::{
     parse_lua_fn_attr, Instance, InstanceConfig, InstanceConfigAttr, LuaFunctionData,
@@ -6,11 +8,14 @@ use parse::{
 use proc_macro2::Span;
 use quote::{quote, ToTokens};
 use syn::{
-    parse::Parser, parse_macro_input, punctuated::Punctuated, spanned::Spanned, Error, Field,
-    Ident, ItemImpl, LitStr, Path, PathSegment, Token, TraitBound, TypeParamBound, TypeTraitObject,
+    parse::Parser, parse_macro_input, punctuated::Punctuated, spanned::Spanned, Error, ExprArray,
+    Field, Ident, ItemEnum, ItemImpl, LitStr, Path, PathSegment, Token, TraitBound, TypeParamBound,
+    TypeTraitObject,
 };
+use utils::camel_case_to_snake_case;
 
 mod parse;
+mod utils;
 
 macro_rules! error_cattr {
     ($span:expr, $err:literal) => {
@@ -456,4 +461,279 @@ pub fn methods(
             .into_compile_error()
             .into();
     }
+}
+
+#[proc_macro_attribute]
+pub fn lua_enum(
+    _item: proc_macro::TokenStream,
+    ts: proc_macro::TokenStream,
+) -> proc_macro::TokenStream {
+    let enum_block: ItemEnum = parse_macro_input!(ts);
+    let name = enum_block.ident.clone();
+    let vis = enum_block.vis.clone();
+
+    let mut last_index: Option<usize> = None;
+    let mut variants = vec![];
+
+    for x in enum_block.variants.iter() {
+        match x.discriminant.as_ref().map(|(_, expr)| expr) {
+            Some(e)
+                if let syn::Expr::Lit(syn::ExprLit {
+                    lit: syn::Lit::Int(i),
+                    ..
+                }) = e =>
+            {
+                last_index = Some(i.base10_parse().unwrap());
+                variants.push((x.ident.to_string(), last_index.unwrap() as i16));
+            }
+            None => match last_index {
+                Some(i) => {
+                    last_index = Some(i + 1);
+                    variants.push((x.ident.to_string(), last_index.unwrap() as i16));
+                }
+                None => {
+                    last_index = Some(0);
+                    variants.push((x.ident.to_string(), 0));
+                }
+            },
+            _ => {
+                return syn::Error::new(x.span(), "invalid discriminant")
+                    .into_compile_error()
+                    .into();
+            }
+        }
+    }
+
+    let variant_quotes_names: Vec<proc_macro2::TokenStream> = variants
+        .iter()
+        .map(|(variant_name, _value)| {
+            let variant_name = Ident::new(variant_name, Span::call_site());
+            quote! {
+                Self::#variant_name => concat!(stringify!(#name), ".", stringify!(#variant_name))
+            }
+        })
+        .collect();
+    let variant_quotes_names_only: Vec<proc_macro2::TokenStream> = variants
+        .iter()
+        .map(|(variant_name, _value)| {
+            let variant_name = Ident::new(variant_name, Span::call_site());
+            quote! {
+                Self::#variant_name => stringify!(#variant_name)
+            }
+        })
+        .collect();
+
+    let variant_fields: Vec<proc_macro2::TokenStream> = variants
+        .iter()
+        .map(|(variant_name, _value)| {
+            let variant_name = Ident::new(variant_name, Span::call_site());
+            quote! {
+                fields.add_field(stringify!(#variant_name), #name::#variant_name);
+            }
+        })
+        .collect();
+
+    let enum_type_name = Ident::new(&format!("LuaEnum{}", name.to_string()), Span::call_site());
+
+    quote! {
+        use r2g_mlua::prelude::*;
+
+        #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
+        #[repr(i16)]
+        #enum_block
+
+        impl FromLua for #name {
+            fn from_lua(value: LuaValue, _lua: &Lua) -> LuaResult<Self> {
+                let ud = value.as_userdata();
+                if ud.is_none() {
+                    Err(LuaError::FromLuaConversionError {
+                        from: value.type_name(),
+                        to: "EnumItem".into(),
+                        message: None,
+                    })
+                } else {
+                    let unwrapped = unsafe { ud.unwrap_unchecked() }.borrow::<Self>();
+                    if unwrapped.is_err() {
+                        Err(LuaError::FromLuaConversionError {
+                            from: "userdata",
+                            to: "EnumItem".into(),
+                            message: None,
+                        })
+                    } else {
+                        unsafe { Ok(*unwrapped.unwrap_unchecked()) }
+                    }
+                }
+            }
+        }
+
+        impl LuaUserData for #name {
+            fn add_methods<M: LuaUserDataMethods<Self>>(methods: &mut M) {
+                methods.add_meta_method("__tostring", |_, this, ()| {
+                    Ok(String::from(match *this {
+                        #(#variant_quotes_names),*
+                    }))
+                });
+            }
+            fn add_fields<F: LuaUserDataFields<Self>>(fields: &mut F) {
+                fields.add_meta_field("__type", "EnumItem");
+                fields.add_field_method_get("Name", |_, this| Ok(match (this) {
+                    #(#variant_quotes_names_only),*
+                }));
+                fields.add_field_method_get("Value", |_, this| Ok(*this as i16));
+
+            }
+        }
+
+        #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
+        #vis struct #enum_type_name;
+
+        impl FromLua for #enum_type_name {
+            fn from_lua(value: LuaValue, _lua: &Lua) -> LuaResult<Self> {
+                let ud = value.as_userdata();
+                if ud.is_none() {
+                    Err(LuaError::FromLuaConversionError {
+                        from: value.type_name(),
+                        to: "Enum".into(),
+                        message: None,
+                    })
+                } else {
+                    let unwrapped =
+                        unsafe { ud.unwrap_unchecked() }.borrow::<Self>();
+                    if unwrapped.is_err() {
+                        Err(LuaError::FromLuaConversionError {
+                            from: "userdata",
+                            to: "Enum".into(),
+                            message: None,
+                        })
+                    } else {
+                        unsafe { Ok(*unwrapped.unwrap_unchecked()) }
+                    }
+                }
+            }
+        }
+
+        impl LuaUserData for #enum_type_name {
+            fn add_methods<M: LuaUserDataMethods<Self>>(methods: &mut M) {
+                methods.add_meta_method("__tostring", |_, _, ()| {
+                    Ok(String::from(concat!("Enums.",stringify!(#name))))
+                });
+            }
+            fn add_fields<F: LuaUserDataFields<Self>>(fields: &mut F) {
+                fields.add_meta_field("__type", "Enum");
+                #(#variant_fields)*
+            }
+        }
+    }
+    .into()
+}
+
+#[doc(hidden)]
+#[proc_macro]
+pub fn create_enums(ts: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let wrapper: ExprArray = parse_macro_input!(ts);
+    let mut enums: Vec<Ident> = vec![];
+    for token in wrapper.elems.iter() {
+        if let syn::Expr::Path(p) = token {
+            if let Some(i) = p.path.get_ident() {
+                enums.push(i.clone());
+            } else {
+                return syn::Error::new(p.path.span(), "not an ident")
+                    .into_compile_error()
+                    .into();
+            }
+        } else {
+            return syn::Error::new(token.span(), "not a path")
+                .into_compile_error()
+                .into();
+        }
+    }
+
+    let modules: Vec<proc_macro2::TokenStream> = enums
+        .iter()
+        .map(|x| {
+            let ident = Ident::new(&camel_case_to_snake_case(x.to_string().as_str()), x.span());
+            quote! {
+                mod #ident;
+            }
+        })
+        .collect();
+
+    let enum_use: Vec<proc_macro2::TokenStream> = enums
+        .iter()
+        .map(|x| {
+            let ident = Ident::new(&camel_case_to_snake_case(x.to_string().as_str()), x.span());
+            let enum_type_name =
+                Ident::new(&format!("LuaEnum{}", x.to_string()), Span::call_site());
+            quote! {
+                pub use #ident::#x;
+                pub use #ident::#enum_type_name;
+            }
+        })
+        .collect();
+
+    let enum_fields: Vec<proc_macro2::TokenStream> = enums
+        .iter()
+        .map(|x| {
+            let enum_type_name =
+                Ident::new(&format!("LuaEnum{}", x.to_string()), Span::call_site());
+            quote! {
+                fields.add_field(stringify!(#x), #enum_type_name);
+            }
+        })
+        .collect();
+
+    quote! {
+        use r2g_mlua::prelude::*;
+
+        #(#modules)*
+        #(#enum_use)*
+
+        #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
+        pub struct LuaEnums;
+
+        impl FromLua for LuaEnums {
+            fn from_lua(value: LuaValue, _lua: &Lua) -> LuaResult<Self> {
+                let ud = value.as_userdata();
+                if ud.is_none() {
+                    Err(LuaError::FromLuaConversionError {
+                        from: value.type_name(),
+                        to: "Enums".into(),
+                        message: None,
+                    })
+                } else {
+                    let unwrapped = unsafe { ud.unwrap_unchecked() }.borrow::<LuaEnums>();
+                    if unwrapped.is_err() {
+                        Err(LuaError::FromLuaConversionError {
+                            from: "userdata",
+                            to: "Enums".into(),
+                            message: None,
+                        })
+                    } else {
+                        unsafe { Ok(*unwrapped.unwrap_unchecked()) }
+                    }
+                }
+            }
+        }
+
+        impl LuaUserData for LuaEnums {
+            fn add_methods<M: LuaUserDataMethods<Self>>(methods: &mut M) {
+                methods.add_meta_method("__tostring", |_, _, ()| {
+                    Ok(String::from("Enums"))
+                });
+            }
+            fn add_fields<F: LuaUserDataFields<Self>>(fields: &mut F) {
+                fields.add_meta_field("__type", "Enums");
+                #(#enum_fields)*
+            }
+        }
+
+        impl crate::userdata::LuaSingleton for LuaEnums {
+            fn register_singleton(lua: &Lua) -> LuaResult<()> {
+                lua.globals().raw_set("Enums", LuaEnums)?;
+                Ok(())
+            }
+        }
+
+    }
+    .into()
 }

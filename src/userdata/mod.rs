@@ -1,3 +1,4 @@
+use enums::LuaEnums;
 use r2g_mlua::prelude::*;
 
 pub trait LuaSingleton {
@@ -89,6 +90,8 @@ pub fn register_userdata_singletons(lua: &mut Lua) -> LuaResult<()> {
     Vector3int16::register_singleton(lua)?;
 
     ManagedInstance::register_singleton(lua)?;
+
+    LuaEnums::register_singleton(lua)?;
 
     Ok(())
 }
