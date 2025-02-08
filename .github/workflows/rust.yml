@@ -19,7 +19,7 @@ jobs:
     name: Build and test (Linux)
     runs-on: ubuntu-latest
 
-    dependencies:
+    needs:
       - format
 
     steps:
