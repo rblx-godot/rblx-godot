@@ -1,10 +1,9 @@
 use r2g_mlua::prelude::*;
 
-use super::{
-    instance::IInstanceComponent, DynInstance, IInstance, ManagedInstance, WeakManagedInstance,
-};
+use crate::core::InstanceCreationMetadata;
 use crate::core::{
-    inheritance_cast_to, lua_macros::lua_invalid_argument, RwLockReadGuard, RwLockWriteGuard,
+    inheritance_cast_to, lua_macros::lua_invalid_argument, DynInstance, IInstance,
+    IInstanceComponent, ManagedInstance, RwLockReadGuard, RwLockWriteGuard,
 };
 use crate::userdata::CFrame;
 
@@ -57,7 +56,7 @@ impl IInstanceComponent for PVInstanceComponent {
     fn clone(
         self: &RwLockReadGuard<'_, PVInstanceComponent>,
         _: &Lua,
-        _: &WeakManagedInstance,
+        _: &InstanceCreationMetadata,
     ) -> LuaResult<Self> {
         Ok(PVInstanceComponent {
             origin: self.origin,
@@ -65,7 +64,7 @@ impl IInstanceComponent for PVInstanceComponent {
         })
     }
 
-    fn new(_: WeakManagedInstance, _class_name: &'static str) -> Self {
+    fn new(_: &InstanceCreationMetadata) -> Self {
         PVInstanceComponent {
             origin: CFrame::new(),
             pivot_offset: CFrame::new(),

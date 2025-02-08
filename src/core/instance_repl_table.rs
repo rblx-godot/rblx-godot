@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::mem::take;
 use std::sync::{RwLock, TryLockError};
 
-use crate::instance::{DynInstance, ManagedInstance, WeakManagedInstance};
+use crate::core::{DynInstance, ManagedInstance, WeakManagedInstance};
 
 #[derive(Default)]
 pub(super) struct InstanceReplicationTable {

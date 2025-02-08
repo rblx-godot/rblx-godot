@@ -7,13 +7,10 @@ use crate::core::lua_macros::{lua_getter, lua_setter};
 use crate::core::ParallelDispatch::Synchronized;
 use crate::core::{
     borrowck_ignore, borrowck_ignore_mut, get_current_identity, get_state,
-    get_task_scheduler_from_lua, inheritance_cast_to, FastFlag, InheritanceBase,
-    InheritanceTableBuilder, Irc, LuauState, RwLock, RwLockReadGuard, RwLockWriteGuard,
-    SecurityContext, Trc,
-};
-use crate::instance::{
-    DynInstance, IInstance, IInstanceComponent, IObject, InstanceComponent, ManagedInstance,
-    WeakManagedInstance,
+    get_task_scheduler_from_lua, inheritance_cast_to, DynInstance, FastFlag, IInstance,
+    IInstanceComponent, IObject, InheritanceBase, InheritanceTableBuilder, InstanceComponent,
+    InstanceCreationMetadata, Irc, LuauState, ManagedInstance, RwLock, RwLockReadGuard,
+    RwLockWriteGuard, SecurityContext, Trc, WeakManagedInstance,
 };
 use crate::userdata::enums::RunContext;
 use crate::userdata::{ManagedRBXScriptSignal, RBXScriptConnection};
@@ -372,21 +369,21 @@ impl IInstanceComponent for BaseScriptComponent {
     fn clone(
         self: &RwLockReadGuard<'_, Self>,
         lua: &Lua,
-        new_ptr: &WeakManagedInstance,
+        metadata: &InstanceCreationMetadata,
     ) -> LuaResult<Self> {
         let c = BaseScriptComponent {
             disabled: self.disabled,
             change_scheduled: None,
             run_context: self.run_context.clone(),
             actor: ActorLuauState::None,
-            self_instance: new_ptr.clone(),
+            self_instance: metadata.get_ptr(),
             source: self.source.clone(),
             connections: Vec::new(),
             has_set_up_destroying: false,
         };
         get_task_scheduler_from_lua(lua).defer_native(
             lua,
-            new_ptr.upgrade().unwrap(),
+            metadata.get_ptr().upgrade().unwrap(),
             Synchronized,
             move |lua, script: ManagedInstance| {
                 let script = script.cast_from_unsized::<dyn IBaseScript>().unwrap();
@@ -399,13 +396,13 @@ impl IInstanceComponent for BaseScriptComponent {
         Ok(c)
     }
 
-    fn new(ptr: WeakManagedInstance, _class_name: &'static str) -> Self {
+    fn new(metadata: &InstanceCreationMetadata) -> Self {
         BaseScriptComponent {
             disabled: true,
             change_scheduled: None,
             run_context: RunContext::Legacy,
             actor: ActorLuauState::None,
-            self_instance: ptr,
+            self_instance: metadata.get_ptr(),
             source: String::new(),
             connections: Vec::new(),
             has_set_up_destroying: false,
@@ -531,11 +528,13 @@ impl IInstance for Script {
 
     fn clone_instance(&self, lua: &Lua) -> LuaResult<ManagedInstance> {
         Ok(Irc::new_cyclic_fallable::<_, LuaError>(|x| {
-            let i = x.cast_to_instance();
+            let metadata = InstanceCreationMetadata::new("Script", x.cast_to_instance());
             let script = Script {
-                instance: RwLock::new_with_flag_auto(self.get_instance_component().clone(lua, &i)?),
+                instance: RwLock::new_with_flag_auto(
+                    self.get_instance_component().clone(lua, &metadata)?,
+                ),
                 base_script: RwLock::new_with_flag_auto(
-                    self.get_base_script_component().clone(lua, &i)?,
+                    self.get_base_script_component().clone(lua, &metadata)?,
                 ),
             };
             Ok(script)
@@ -568,15 +567,14 @@ impl IBaseScript for Script {
 
 impl Script {
     pub fn new() -> ManagedInstance {
-        Irc::new_cyclic(|x| Script {
-            instance: RwLock::new_with_flag_auto(InstanceComponent::new(
-                x.cast_to_instance(),
-                "Script",
-            )),
-            base_script: RwLock::new_with_flag_auto(BaseScriptComponent::new(
-                x.cast_to_instance(),
-                "Script",
-            )),
+        Irc::new_cyclic(|x| {
+            let metadata = InstanceCreationMetadata::new("Script", x.cast_to_instance());
+            let mut s = Script {
+                instance: RwLock::new_with_flag_auto(InstanceComponent::new(&metadata)),
+                base_script: RwLock::new_with_flag_auto(BaseScriptComponent::new(&metadata)),
+            };
+            DynInstance::submit_metadata(&mut s, metadata);
+            s
         })
         .cast_from_sized()
         .unwrap()
@@ -650,11 +648,13 @@ impl IInstance for LocalScript {
 
     fn clone_instance(&self, lua: &Lua) -> LuaResult<ManagedInstance> {
         Ok(Irc::new_cyclic_fallable::<_, LuaError>(|x| {
-            let i = x.cast_to_instance();
+            let metadata = InstanceCreationMetadata::new("LocalScript", x.cast_to_instance());
             let script = LocalScript {
-                instance: RwLock::new_with_flag_auto(self.get_instance_component().clone(lua, &i)?),
+                instance: RwLock::new_with_flag_auto(
+                    self.get_instance_component().clone(lua, &metadata)?,
+                ),
                 base_script: RwLock::new_with_flag_auto(
-                    self.get_base_script_component().clone(lua, &i)?,
+                    self.get_base_script_component().clone(lua, &metadata)?,
                 ),
             };
             Ok(script)
@@ -687,15 +687,12 @@ impl IBaseScript for LocalScript {
 
 impl LocalScript {
     pub fn new() -> ManagedInstance {
-        Irc::new_cyclic(|x| LocalScript {
-            instance: RwLock::new_with_flag_auto(InstanceComponent::new(
-                x.cast_to_instance(),
-                "LocalScript",
-            )),
-            base_script: RwLock::new_with_flag_auto(BaseScriptComponent::new(
-                x.cast_to_instance(),
-                "LocalScript",
-            )),
+        Irc::new_cyclic(|x| {
+            let metadata = InstanceCreationMetadata::new("LocalScript", x.cast_to_instance());
+            LocalScript {
+                instance: RwLock::new_with_flag_auto(InstanceComponent::new(&metadata)),
+                base_script: RwLock::new_with_flag_auto(BaseScriptComponent::new(&metadata)),
+            }
         })
         .cast_from_sized()
         .unwrap()
@@ -762,20 +759,20 @@ impl IInstanceComponent for ModuleScriptComponent {
     fn clone(
         self: &RwLockReadGuard<'_, Self>,
         _lua: &Lua,
-        new_ptr: &WeakManagedInstance,
+        metadata: &InstanceCreationMetadata,
     ) -> LuaResult<Self> {
         Ok(ModuleScriptComponent {
             source: self.source.clone(),
             already_imported: HashMap::new(),
-            _self_ptr: new_ptr.clone(),
+            _self_ptr: metadata.get_ptr(),
         })
     }
 
-    fn new(ptr: WeakManagedInstance, _class_name: &'static str) -> Self {
+    fn new(metadata: &InstanceCreationMetadata) -> Self {
         ModuleScriptComponent {
             source: String::new(),
             already_imported: HashMap::new(),
-            _self_ptr: ptr,
+            _self_ptr: metadata.get_ptr(),
         }
     }
 }
@@ -852,11 +849,13 @@ impl IInstance for ModuleScript {
 
     fn clone_instance(&self, lua: &Lua) -> LuaResult<ManagedInstance> {
         Ok(Irc::new_cyclic_fallable::<_, LuaError>(|x| {
-            let i = x.cast_to_instance();
+            let metadata = InstanceCreationMetadata::new("ModuleScript", x.cast_to_instance());
             let script = ModuleScript {
-                instance: RwLock::new_with_flag_auto(self.get_instance_component().clone(lua, &i)?),
+                instance: RwLock::new_with_flag_auto(
+                    self.get_instance_component().clone(lua, &metadata)?,
+                ),
                 module_script: RwLock::new_with_flag_auto(
-                    self.get_module_script_component().clone(lua, &i)?,
+                    self.get_module_script_component().clone(lua, &metadata)?,
                 ),
             };
             Ok(script)
@@ -934,15 +933,14 @@ impl dyn IModuleScript {
 
 impl ModuleScript {
     pub fn new() -> ManagedInstance {
-        Irc::new_cyclic(|x| ModuleScript {
-            instance: RwLock::new_with_flag_auto(InstanceComponent::new(
-                x.cast_to_instance(),
-                "ModuleScript",
-            )),
-            module_script: RwLock::new_with_flag_auto(ModuleScriptComponent::new(
-                x.cast_to_instance(),
-                "ModuleScript",
-            )),
+        Irc::new_cyclic(|x| {
+            let metadata = InstanceCreationMetadata::new("ModuleScript", x.cast_to_instance());
+            let mut s = ModuleScript {
+                instance: RwLock::new_with_flag_auto(InstanceComponent::new(&metadata)),
+                module_script: RwLock::new_with_flag_auto(ModuleScriptComponent::new(&metadata)),
+            };
+            DynInstance::submit_metadata(&mut s, metadata);
+            s
         })
         .cast_from_sized()
         .unwrap()

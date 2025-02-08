@@ -1,10 +1,10 @@
 use r2g_mlua::prelude::*;
 
-use super::instance::IInstanceComponent;
-use super::{DynInstance, IInstance, ManagedInstance, WeakManagedInstance};
-
 use crate::core::lua_macros::{lua_getter, lua_invalid_argument};
-use crate::core::{inheritance_cast_to, RwLockReadGuard, RwLockWriteGuard};
+use crate::core::{
+    inheritance_cast_to, DynInstance, IInstance, IInstanceComponent, InstanceCreationMetadata,
+    ManagedInstance, RwLockReadGuard, RwLockWriteGuard,
+};
 use crate::userdata::{ManagedRBXScriptSignal, RBXScriptSignal};
 #[derive(Debug)]
 pub struct ServiceProviderComponent {
@@ -69,16 +69,16 @@ impl IInstanceComponent for ServiceProviderComponent {
     fn clone(
         self: &RwLockReadGuard<'_, Self>,
         _: &Lua,
-        new_ptr: &WeakManagedInstance,
+        metadata: &InstanceCreationMetadata,
     ) -> LuaResult<Self> {
-        Ok(Self::new(new_ptr.clone(), ""))
+        Ok(Self::new(metadata))
     }
 
-    fn new(_ptr: WeakManagedInstance, _class_name: &'static str) -> Self {
+    fn new(metadata: &InstanceCreationMetadata) -> Self {
         Self {
-            close: RBXScriptSignal::new(),
-            service_added: RBXScriptSignal::new(),
-            service_removing: RBXScriptSignal::new(),
+            close: RBXScriptSignal::new(metadata),
+            service_added: RBXScriptSignal::new(metadata),
+            service_removing: RBXScriptSignal::new(metadata),
         }
     }
 }

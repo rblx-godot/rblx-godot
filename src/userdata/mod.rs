@@ -1,3 +1,4 @@
+use enums::LuaEnums;
 use r2g_mlua::prelude::*;
 
 pub trait LuaSingleton {
@@ -77,7 +78,7 @@ pub type Vector3 = vectors::Vector3<f64>;
 pub use cframe::CFrame;
 pub use events::{ManagedRBXScriptSignal, RBXScriptConnection, RBXScriptSignal};
 
-use crate::instance::ManagedInstance;
+use crate::core::ManagedInstance;
 
 pub fn register_userdata_singletons(lua: &mut Lua) -> LuaResult<()> {
     Axes::register_singleton(lua)?;
@@ -89,6 +90,8 @@ pub fn register_userdata_singletons(lua: &mut Lua) -> LuaResult<()> {
     Vector3int16::register_singleton(lua)?;
 
     ManagedInstance::register_singleton(lua)?;
+
+    LuaEnums::register_singleton(lua)?;
 
     Ok(())
 }

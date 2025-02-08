@@ -1,4 +1,5 @@
 use proc_macro2::Span;
+use quote::ToTokens;
 use syn::{
     braced, bracketed,
     parse::{Parse, ParseStream},
@@ -468,5 +469,171 @@ pub(crate) fn data_struct(
         Ok((where_clause, fields, None))
     } else {
         Err(lookahead.error())
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) enum AttrArgValue {
+    Expr(syn::Expr),
+    Func(syn::Signature),
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct AttrNamedArg {
+    pub name: Ident,
+    pub assign_token: Token![=],
+    pub value: AttrArgValue,
+}
+#[derive(Debug, Clone)]
+pub(crate) enum AttrArg {
+    Named(AttrNamedArg),
+    Unnamed(AttrArgValue),
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct AttrArguments {
+    pub args: Punctuated<AttrArg, Token![,]>,
+}
+
+impl Parse for AttrArgValue {
+    fn parse(input: ParseStream) -> Result<Self> {
+        if input.peek(syn::Token![fn]) {
+            Ok(AttrArgValue::Func(input.parse()?))
+        } else {
+            Ok(AttrArgValue::Expr(input.parse()?))
+        }
+    }
+}
+
+impl Parse for AttrNamedArg {
+    fn parse(input: ParseStream) -> Result<Self> {
+        let name = input.parse()?;
+        let assign_token = input.parse()?;
+        let value = input.parse()?;
+        Ok(AttrNamedArg {
+            name,
+            assign_token,
+            value,
+        })
+    }
+}
+
+impl Parse for AttrArg {
+    fn parse(input: ParseStream) -> Result<Self> {
+        if input.peek2(Token![=]) {
+            Ok(AttrArg::Named(input.parse()?))
+        } else {
+            Ok(AttrArg::Unnamed(input.parse()?))
+        }
+    }
+}
+
+impl Parse for AttrArguments {
+    fn parse(input: ParseStream) -> Result<Self> {
+        if input.is_empty() {
+            return Ok(AttrArguments {
+                args: Punctuated::new(),
+            });
+        }
+        Ok(AttrArguments {
+            args: input.parse_terminated(AttrArg::parse, Token![,])?,
+        })
+    }
+}
+
+impl ToTokens for AttrArgValue {
+    fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
+        match self {
+            AttrArgValue::Expr(expr) => expr.to_tokens(tokens),
+            AttrArgValue::Func(sig) => sig.to_tokens(tokens),
+        }
+    }
+}
+
+impl TryInto<syn::Expr> for AttrArgValue {
+    type Error = syn::Error;
+
+    fn try_into(self) -> Result<syn::Expr> {
+        match self {
+            AttrArgValue::Expr(expr) => Ok(expr),
+            x => Err(syn::Error::new(x.span(), "expected expression")),
+        }
+    }
+}
+
+impl TryInto<syn::Signature> for AttrArgValue {
+    type Error = syn::Error;
+
+    fn try_into(self) -> Result<syn::Signature> {
+        match self {
+            AttrArgValue::Func(sig) => Ok(sig),
+            x => Err(syn::Error::new(x.span(), "expected function")),
+        }
+    }
+}
+
+impl TryInto<syn::Path> for AttrArgValue {
+    type Error = syn::Error;
+
+    fn try_into(self) -> Result<syn::Path> {
+        let span = self.span();
+        if let Self::Expr(syn::Expr::Path(p)) = self {
+            Ok(p.path)
+        } else {
+            Err(syn::Error::new(span, "expected path"))
+        }
+    }
+}
+
+impl TryInto<syn::Ident> for AttrArgValue {
+    type Error = syn::Error;
+
+    fn try_into(self) -> Result<syn::Ident> {
+        let span = self.span();
+        if let Self::Expr(syn::Expr::Path(p)) = self {
+            if p.path.segments.len() == 1 {
+                Ok(p.path.segments[0].ident.clone())
+            } else {
+                Err(syn::Error::new(
+                    p.path.span(),
+                    "expected identifier, got path",
+                ))
+            }
+        } else {
+            Err(syn::Error::new(span, "expected identifier"))
+        }
+    }
+}
+
+impl AttrArguments {
+    pub fn get_named_arg(&self, name: &str) -> Option<&AttrNamedArg> {
+        self.args.iter().find_map(|arg| match arg {
+            AttrArg::Named(named) => {
+                if named.name == name {
+                    Some(named)
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        })
+    }
+    pub fn get_unnamed_arg(&self, idx: usize) -> Option<&AttrArgValue> {
+        self.args
+            .iter()
+            .filter_map(|x| match x {
+                AttrArg::Unnamed(v) => Some(v),
+                _ => None,
+            })
+            .nth(idx)
+    }
+    pub fn get_unnamed_arg_count(&self) -> usize {
+        self.args
+            .iter()
+            .filter_map(|x| match x {
+                AttrArg::Unnamed(_) => Some(()),
+                _ => None,
+            })
+            .count()
     }
 }

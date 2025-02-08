@@ -9,11 +9,8 @@ use super::{
     borrowck_ignore, FastFlag, FastFlags, Irc, RwLock, RwLockReadGuard, RwLockWriteGuard,
     TaskScheduler, Trc,
 };
-use super::{security::ThreadIdentityType, vm::RblxVM};
-use crate::instance::{
-    DataModel, DynInstance, IModuleScript, LogService, ManagedInstance, WeakManagedActor,
-    WeakManagedInstance,
-};
+use super::{DynInstance, ManagedInstance, RblxVM, ThreadIdentityType, WeakManagedInstance};
+use crate::instance::{DataModel, IModuleScript, LogService, WeakManagedActor};
 use crate::userdata::register_userdata_singletons;
 use r2g_mlua::{prelude::*, ChunkMode, Compiler};
 
@@ -127,6 +124,20 @@ impl LuauState {
                     .unwrap(),
             )
             .unwrap();
+        self.lua
+            .globals()
+            .raw_set(
+                "workspace",
+                self.vm
+                    .as_ref()
+                    .unwrap_unchecked()
+                    .read()
+                    .unwrap()
+                    .get_workspace()
+                    .cast_from_sized::<DynInstance>()
+                    .unwrap(),
+            )
+            .unwrap();
     }
     unsafe fn register_globals(&mut self) {
         self.lua
@@ -181,6 +192,25 @@ impl LuauState {
                     .unwrap()
                     .get_game_instance()
                     .cast_from_sized::<DynInstance>()
+                    .unwrap(),
+            )
+            .unwrap();
+        self.lua
+            .globals()
+            .raw_set(
+                "typeof",
+                self.lua
+                    .create_function(|_, value: LuaValue| {
+                        if let Some(ud) = value.as_userdata() {
+                            Ok(ud
+                                .metatable()?
+                                .get::<Option<String>>("__type")
+                                .unwrap()
+                                .unwrap_or("userdata".to_string()))
+                        } else {
+                            Ok(value.type_name().to_string())
+                        }
+                    })
                     .unwrap(),
             )
             .unwrap();

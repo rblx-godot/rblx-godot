@@ -77,14 +77,6 @@ unsafe impl ExtensionLibrary for RblxGodotExtension {
                         authors.replace(":", ", ")
                     }
                 );
-                /*
-                let mut roblox_vm = RblxVM::new(None);
-                let env = roblox_vm.get_mut().get_main_state().create_env_from_global().unwrap();
-                roblox_vm.get_mut()
-                    .get_main_state()
-                    .compile_jit("test.lua", include_str!("test.lua"), env).unwrap()
-                    .call::<()>(()).unwrap();
-                */
             }
             _ => (),
         }

@@ -580,6 +580,8 @@ impl Sub<Vector3> for CFrame {
 
 impl LuaUserData for CFrame {
     fn add_fields<F: LuaUserDataFields<Self>>(fields: &mut F) {
+        fields.add_meta_field("__type", "CFrame");
+
         fields.add_field_method_get("Position", |_, this| Ok(Vector3::from(this.pos)));
         fields.add_field_method_get("Rotation", |_, this| Ok(this.rotation_only()));
         fields.add_field_method_get("X", |_, this| Ok(this.pos[0]));

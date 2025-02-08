@@ -1,11 +1,11 @@
 use r2g_mlua::prelude::*;
 
-use super::{instance::IInstanceComponent, IObject, InstanceComponent};
-use super::{DynInstance, IInstance, ManagedInstance};
 use crate::core::lua_macros::lua_getter;
 use crate::core::{
-    get_state, get_state_with_rwlock, FastFlag, InheritanceBase, InheritanceTable,
-    InheritanceTableBuilder, Irc, LuauState, RwLock, RwLockReadGuard, RwLockWriteGuard, Trc,
+    get_state, get_state_with_rwlock, DynInstance, FastFlag, IInstance, IInstanceComponent,
+    IObject, InheritanceBase, InheritanceTable, InheritanceTableBuilder, InstanceComponent,
+    InstanceCreationMetadata, Irc, LuauState, ManagedInstance, RwLock, RwLockReadGuard,
+    RwLockWriteGuard, Trc,
 };
 use crate::userdata::{ManagedRBXScriptSignal, RBXScriptSignal};
 
@@ -27,8 +27,8 @@ pub struct RunService {
 impl InheritanceBase for RunService {
     fn inheritance_table(&self) -> InheritanceTable {
         InheritanceTableBuilder::new()
-            .insert_type::<RunService, dyn IObject>(|x: &Self| x, |x: &mut Self| x)
-            .insert_type::<RunService, DynInstance>(|x: &Self| x, |x: &mut Self| x)
+            .insert_type::<RunService, dyn IObject>(|x| x, |x| x)
+            .insert_type::<RunService, DynInstance>(|x| x, |x| x)
             .output()
     }
 }
@@ -132,19 +132,21 @@ impl IInstance for RunService {
 
 impl RunService {
     pub fn new() -> Irc<RunService> {
-        let inst = Irc::new_cyclic(|x| RunService {
-            instance_component: RwLock::new_with_flag_auto(InstanceComponent::new(
-                x.cast_to_instance().clone(),
-                "RunService",
-            )),
-            render_steps: RwLock::new_with_flag_auto(Vec::new()),
-            heart_beat: RBXScriptSignal::new(),
-            post_simulation: RBXScriptSignal::new(),
-            pre_animation: RBXScriptSignal::new(),
-            pre_render: RBXScriptSignal::new(),
-            pre_simulation: RBXScriptSignal::new(),
-            render_stepped: RBXScriptSignal::new(),
-            stepped: RBXScriptSignal::new(),
+        let inst = Irc::new_cyclic(|x| {
+            let metadata = InstanceCreationMetadata::new("RunService", x.cast_to_instance());
+            let mut r = RunService {
+                instance_component: RwLock::new_with_flag_auto(InstanceComponent::new(&metadata)),
+                render_steps: RwLock::new_with_flag_auto(Vec::new()),
+                heart_beat: RBXScriptSignal::new(&metadata),
+                post_simulation: RBXScriptSignal::new(&metadata),
+                pre_animation: RBXScriptSignal::new(&metadata),
+                pre_render: RBXScriptSignal::new(&metadata),
+                pre_simulation: RBXScriptSignal::new(&metadata),
+                render_stepped: RBXScriptSignal::new(&metadata),
+                stepped: RBXScriptSignal::new(&metadata),
+            };
+            DynInstance::submit_metadata(&mut r, metadata);
+            r
         });
         DynInstance::set_name(&*inst, "Run Service".into()).unwrap();
         inst

@@ -19,6 +19,8 @@ pub struct Axes {
 
 impl LuaUserData for Axes {
     fn add_fields<F: LuaUserDataFields<Self>>(fields: &mut F) {
+        fields.add_meta_field("__type", "Axes");
+
         fields.add_field_method_get("X", |_, this| Ok(this.x));
         fields.add_field_method_get("Y", |_, this| Ok(this.y));
         fields.add_field_method_get("Z", |_, this| Ok(this.z));

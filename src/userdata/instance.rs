@@ -1,13 +1,16 @@
 use r2g_mlua::prelude::*;
 
 use crate::{
-    core::{get_state, lua_macros::lua_getter},
-    instance::{Actor, DynInstance, LocalScript, ManagedInstance, Model, ModuleScript, Script},
+    core::{get_state, lua_macros::lua_getter, DynInstance, ManagedInstance},
+    instance::{Actor, LocalScript, Model, ModuleScript, Script},
 };
 
 use super::LuaSingleton;
 
 impl LuaUserData for ManagedInstance {
+    fn add_fields<F: LuaUserDataFields<Self>>(fields: &mut F) {
+        fields.add_meta_field("__type", "Instance");
+    }
     fn add_methods<M: LuaUserDataMethods<Self>>(methods: &mut M) {
         methods.add_meta_method("__index", |lua, this, field: String| {
             this.lua_get(lua, field)

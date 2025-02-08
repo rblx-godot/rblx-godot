@@ -1,8 +1,9 @@
 use std::borrow::Borrow;
+use std::cell::UnsafeCell;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::hash::{DefaultHasher, Hash, Hasher};
-use std::mem::swap;
+use std::mem::{forget, swap, take};
 use std::ops::Deref;
 use std::ptr::NonNull;
 
@@ -16,12 +17,12 @@ use crate::core::{
 };
 use crate::userdata::{ManagedRBXScriptSignal, RBXScriptSignal};
 
-use super::IObject;
+use super::{IObject, Weak};
 
 pub type DynInstance = dyn IInstance;
 pub type ManagedInstance = Irc<DynInstance>;
 pub type WeakManagedInstance = IWeak<DynInstance>;
-pub type EventsTable = HashMap<String, ManagedRBXScriptSignal>;
+type EventsTable = HashMap<String, ManagedRBXScriptSignal>;
 
 pub trait IInstanceComponent: Sized {
     unsafe fn weak_to_strong_instance(ptr: WeakManagedInstance) -> ManagedInstance {
@@ -43,9 +44,9 @@ pub trait IInstanceComponent: Sized {
     fn clone(
         self: &RwLockReadGuard<'_, Self>,
         lua: &Lua,
-        new_ptr: &WeakManagedInstance,
+        metadata: &InstanceCreationMetadata,
     ) -> LuaResult<Self>;
-    fn new(ptr: WeakManagedInstance, class_name: &'static str) -> Self;
+    fn new(metadata: &InstanceCreationMetadata) -> Self;
 }
 
 type ReadInstanceComponent<'a> = RwLockReadGuard<'a, InstanceComponent>;
@@ -58,6 +59,8 @@ pub trait IReadInstanceComponent:
 
 impl<'a> IReadInstanceComponent for ReadInstanceComponent<'a> {}
 impl<'a> IReadInstanceComponent for WriteInstanceComponent<'a> {}
+
+pub(crate) type InstanceCreationSignalList = Vec<Weak<RBXScriptSignal>>;
 
 pub trait IInstance: IObject {
     fn get_instance_component(&self) -> RwLockReadGuard<InstanceComponent>;
@@ -191,7 +194,7 @@ impl DynInstance {
         if parent.is_some() {
             let _parent_instance = parent.as_ref().unwrap();
             let p = _parent_instance.get_instance_component();
-            let this_ptr = this._ptr.as_ref().unwrap().upgrade().unwrap();
+            let this_ptr = this._ptr.upgrade().unwrap();
             let _guard_release = this.guard_release();
             if DynInstance::guard_is_descendant_of(&p, this_ptr)? {
                 return Err(LuaError::RuntimeError(
@@ -202,7 +205,7 @@ impl DynInstance {
         if this.parent.is_some() {
             // Descendant removing for all ancestors
             let ancestors = DynInstance::guard_get_ancestors(&*this);
-            let _ptr_this = this._ptr.as_ref().unwrap().upgrade().unwrap();
+            let _ptr_this = this._ptr.upgrade().unwrap();
             let _guard_release = this.guard_release();
             for ancestor in ancestors {
                 ancestor
@@ -218,7 +221,7 @@ impl DynInstance {
         swap(&mut this.parent, &mut old_parent);
 
         if old_parent.is_some() {
-            let _ptr_this = this._ptr.as_ref().unwrap().upgrade().unwrap();
+            let _ptr_this = this._ptr.upgrade().unwrap();
             let _guard_release = this.guard_release();
             let old_parent = old_parent.unwrap().upgrade().unwrap();
             {
@@ -235,7 +238,7 @@ impl DynInstance {
 
         let descendants = DynInstance::guard_get_descendants(this)?;
 
-        let _ptr_this = this._ptr.as_ref().unwrap().upgrade().unwrap();
+        let _ptr_this = this._ptr.upgrade().unwrap();
         let _guard_release = this.guard_release();
         for i in descendants {
             i.get_instance_component()
@@ -369,6 +372,11 @@ impl DynInstance {
         this.parent_locked = true;
         DynInstance::set_parent_forced(this, lua, None)?;
         DynInstance::guard_clear_all_children(this, lua)?;
+        for sig in this.signal_list.take().unwrap() {
+            if let Some(sig) = sig.upgrade() {
+                sig.write().disconnect_all();
+            }
+        }
         Ok(())
     }
     #[inline]
@@ -418,7 +426,7 @@ impl DynInstance {
     }
     pub fn add_tag(&self, lua: &Lua, tag: String) -> LuaResult<()> {
         let mut write = self.get_instance_component_mut();
-        let ptr = write._ptr.clone().unwrap();
+        let ptr = write._ptr.clone();
         write.tags.insert(tag.clone());
         drop(write);
         get_state(lua)
@@ -549,7 +557,7 @@ impl DynInstance {
         } else {
             drop(read);
             let mut write = self.get_instance_component_mut();
-            let event = RBXScriptSignal::new();
+            let event = RBXScriptSignal::new_internal(write.signal_list.as_mut().unwrap());
             write
                 .attribute_changed_table
                 .insert(attribute, event.clone());
@@ -580,9 +588,7 @@ impl DynInstance {
         let mut i = DynInstance::guard_get_parent(descendant);
         while let Some(ref parent) = i {
             let read = parent.get_instance_component();
-            if unsafe {
-                read._ptr.as_ref().unwrap_unchecked() == this._ptr.as_ref().unwrap_unchecked()
-            } {
+            if read._ptr == this._ptr {
                 return Ok(true);
             }
             let new_i = read.parent.as_ref().map(|x| x.upgrade()).flatten();
@@ -593,7 +599,7 @@ impl DynInstance {
     }
     pub fn remove_tag(&self, lua: &Lua, tag: String) -> LuaResult<()> {
         let mut write = self.get_instance_component_mut();
-        let ptr = write._ptr.clone().unwrap();
+        let ptr = write._ptr.clone();
         write.tags.remove(&tag);
         drop(write);
         get_state(lua)
@@ -612,6 +618,14 @@ impl DynInstance {
             .map(move |x| x.write().fire(lua, (value,)))
             .unwrap_or(Ok(()))
     }
+    pub fn submit_metadata(&mut self, mut metadata: InstanceCreationMetadata) {
+        self.get_instance_component_mut().signal_list =
+            Some(take(&mut metadata.signal_list).into_inner());
+        unsafe {
+            metadata.ptr.decrement_weak_count();
+        }
+        forget(metadata);
+    }
 }
 
 impl Debug for DynInstance {
@@ -625,7 +639,7 @@ pub struct InstanceComponent {
     archivable: bool,
     name: String,
     parent: Option<WeakManagedInstance>,
-    _ptr: Option<WeakManagedInstance>,
+    _ptr: WeakManagedInstance,
     unique_id: usize,
     children: Vec<ManagedInstance>,
     children_cache: HashMap<String, WeakManagedInstance>,
@@ -643,6 +657,8 @@ pub struct InstanceComponent {
 
     pub attribute_changed_table: EventsTable,
     pub property_changed_table: EventsTable,
+
+    signal_list: Option<InstanceCreationSignalList>,
 
     attributes: HashMap<String, LuaValue>,
     tags: HashSet<String>,
@@ -675,26 +691,27 @@ impl IInstanceComponent for InstanceComponent {
         Some(InstanceComponent::lua_set(self, lua, key, value.clone()))
     }
 
-    fn new(ptr: WeakManagedInstance, class_name: &'static str) -> Self {
+    fn new(metadata: &InstanceCreationMetadata) -> Self {
         let inst = InstanceComponent {
             parent: None,
-            name: String::from(class_name),
+            name: String::from(metadata.class_name),
             archivable: true,
             unique_id: usize::default(), //uninitialized,
-            _ptr: Some(ptr),
+            _ptr: metadata.get_ptr(),
             parent_locked: false,
             children: Vec::new(),
             children_cache: HashMap::new(),
             children_cache_dirty: false,
 
-            ancestry_changed: RBXScriptSignal::new(),
-            attribute_changed: RBXScriptSignal::new(),
-            changed: RBXScriptSignal::new(),
-            child_added: RBXScriptSignal::new(),
-            child_removed: RBXScriptSignal::new(),
-            descendant_added: RBXScriptSignal::new(),
-            descendant_removing: RBXScriptSignal::new(),
-            destroying: RBXScriptSignal::new(),
+            ancestry_changed: RBXScriptSignal::new(metadata),
+            attribute_changed: RBXScriptSignal::new(metadata),
+            changed: RBXScriptSignal::new(metadata),
+            child_added: RBXScriptSignal::new(metadata),
+            child_removed: RBXScriptSignal::new(metadata),
+            descendant_added: RBXScriptSignal::new(metadata),
+            descendant_removing: RBXScriptSignal::new(metadata),
+            destroying: RBXScriptSignal::new(metadata),
+            signal_list: None,
 
             attribute_changed_table: EventsTable::default(),
             property_changed_table: EventsTable::default(),
@@ -707,7 +724,7 @@ impl IInstanceComponent for InstanceComponent {
     fn clone(
         self: &RwLockReadGuard<'_, Self>,
         lua: &Lua,
-        ptr: &WeakManagedInstance,
+        metadata: &InstanceCreationMetadata,
     ) -> LuaResult<Self> {
         let mut new_children = Vec::new();
         for i in self.children.iter() {
@@ -724,17 +741,18 @@ impl IInstanceComponent for InstanceComponent {
             children: new_children,
             children_cache: HashMap::default(),
             children_cache_dirty: true,
-            _ptr: Some(ptr.clone()),
+            _ptr: metadata.ptr.clone(),
             parent_locked: false,
 
-            ancestry_changed: RBXScriptSignal::new(),
-            attribute_changed: RBXScriptSignal::new(),
-            changed: RBXScriptSignal::new(),
-            child_added: RBXScriptSignal::new(),
-            child_removed: RBXScriptSignal::new(),
-            descendant_added: RBXScriptSignal::new(),
-            descendant_removing: RBXScriptSignal::new(),
-            destroying: RBXScriptSignal::new(),
+            ancestry_changed: RBXScriptSignal::new(metadata),
+            attribute_changed: RBXScriptSignal::new(metadata),
+            changed: RBXScriptSignal::new(metadata),
+            child_added: RBXScriptSignal::new(metadata),
+            child_removed: RBXScriptSignal::new(metadata),
+            descendant_added: RBXScriptSignal::new(metadata),
+            descendant_removing: RBXScriptSignal::new(metadata),
+            destroying: RBXScriptSignal::new(metadata),
+            signal_list: None,
 
             attribute_changed_table: EventsTable::default(),
             property_changed_table: EventsTable::default(),
@@ -747,16 +765,10 @@ impl IInstanceComponent for InstanceComponent {
 
 impl InstanceComponent {
     pub fn get_instance_pointer(self: &RwLockReadGuard<'_, Self>) -> ManagedInstance {
-        unsafe {
-            self._ptr
-                .as_ref()
-                .unwrap_unchecked()
-                .upgrade()
-                .unwrap_unchecked()
-        }
+        unsafe { self._ptr.upgrade().unwrap_unchecked() }
     }
     pub fn get_weak_instance_pointer(self: &RwLockReadGuard<'_, Self>) -> WeakManagedInstance {
-        unsafe { self._ptr.as_ref().unwrap_unchecked().clone() }
+        self._ptr.clone()
     }
     pub fn lua_get(
         self: &mut RwLockReadGuard<'_, Self>,
@@ -766,14 +778,7 @@ impl InstanceComponent {
         match key.as_str() {
             "Archivable" => lua_getter!(lua, self.archivable),
             "ClassName" => IntoLua::into_lua(
-                unsafe {
-                    self._ptr
-                        .as_ref()
-                        .unwrap_unchecked()
-                        .upgrade()
-                        .unwrap_unchecked()
-                        .get_class_name()
-                },
+                unsafe { self._ptr.upgrade().unwrap_unchecked().get_class_name() },
                 lua,
             ),
             "Name" => lua_getter!(string, lua, self.name),
@@ -911,9 +916,13 @@ impl InstanceComponent {
             _ => lua_getter!(lua, self.find_first_child(key)),
         }
     }
-
+    pub(crate) fn get_signal_list(&mut self) -> &mut Vec<Weak<RBXScriptSignal>> {
+        self.signal_list
+            .as_mut()
+            .expect("instance creation metadata not set.")
+    }
     fn remake_cache(self: &mut RwLockReadGuard<'_, Self>) {
-        let inst = self._ptr.as_ref().map(|x| x.upgrade()).flatten().unwrap();
+        let inst = self._ptr.upgrade().unwrap();
         let _release = self.guard_release();
         let mut write = inst.get_instance_component_mut();
 
@@ -960,11 +969,11 @@ impl InstanceComponent {
         if read.is_some() {
             Ok(read.unwrap().clone())
         } else {
-            let inst = self._ptr.as_ref().map(|x| x.upgrade()).flatten().unwrap();
+            let inst = self._ptr.upgrade().unwrap();
             let _release = self.guard_release();
 
             let mut write = inst.get_instance_component_mut();
-            let signal = RBXScriptSignal::new();
+            let signal = RBXScriptSignal::new_internal(write.signal_list.as_mut().unwrap());
             write
                 .property_changed_table
                 .insert(property, signal.clone());
@@ -1007,5 +1016,31 @@ impl<T: IInstance, A: Allocator + Clone + Send + Sync> IWeak<T, A> {
         let header =
             unsafe { NonNull::new_unchecked(header_raw.as_ptr() as *mut IrcHead<DynInstance>) };
         IWeak::from_inner_with_allocator((header, p, alloc))
+    }
+}
+
+pub struct InstanceCreationMetadata {
+    class_name: &'static str,
+    ptr: WeakManagedInstance,
+    pub(crate) signal_list: UnsafeCell<InstanceCreationSignalList>,
+}
+impl InstanceCreationMetadata {
+    pub fn new(class_name: &'static str, ptr: WeakManagedInstance) -> Self {
+        Self {
+            class_name,
+            ptr,
+            signal_list: UnsafeCell::new(InstanceCreationSignalList::new()),
+        }
+    }
+    pub fn get_ptr(&self) -> WeakManagedInstance {
+        self.ptr.clone()
+    }
+    pub fn get_ptr_ref(&self) -> &WeakManagedInstance {
+        &self.ptr
+    }
+}
+impl Drop for InstanceCreationMetadata {
+    fn drop(&mut self) {
+        panic!("InstanceCreationMetadata dropped without being submitted to Instance.");
     }
 }

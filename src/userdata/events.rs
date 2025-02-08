@@ -10,8 +10,9 @@ use std::{
 
 use super::from_lua_clone_impl;
 use crate::core::{
-    get_state, get_state_with_rwlock, get_task_scheduler_from_lua, FastFlag, LuauState,
-    ParallelDispatch, Trc, TrcReadLock, TrcWriteLock, Weak,
+    get_state, get_state_with_rwlock, get_task_scheduler_from_lua, FastFlag,
+    InstanceCreationMetadata, InstanceCreationSignalList, LuauState, ParallelDispatch, Trc,
+    TrcReadLock, TrcWriteLock, Weak,
 };
 use r2g_mlua::prelude::*;
 pub type ManagedRBXScriptSignal = Trc<RBXScriptSignal>;
@@ -46,12 +47,20 @@ pub struct RBXScriptSignalFuture {
 }
 
 impl RBXScriptSignal {
-    pub fn new() -> Trc<RBXScriptSignal> {
-        Trc::new_cyclic(|x| RBXScriptSignal {
+    pub(crate) fn new_internal(
+        signal_list: &mut InstanceCreationSignalList,
+    ) -> Trc<RBXScriptSignal> {
+        let signal = Trc::new_cyclic(|x| RBXScriptSignal {
             callbacks: HashMap::default(),
             this_ptr: Some(x.clone()),
             id: 0,
-        })
+        });
+        signal_list.push(signal.downgrade());
+        signal
+    }
+    #[inline]
+    pub fn new(metadata: &InstanceCreationMetadata) -> Trc<RBXScriptSignal> {
+        unsafe { Self::new_internal(metadata.signal_list.get().as_mut().unwrap()) }
     }
     pub fn connect(
         &mut self,
@@ -176,6 +185,9 @@ impl RBXScriptSignal {
             })),
         }
     }
+    pub(crate) fn disconnect_all(&mut self) {
+        self.callbacks.clear();
+    }
 }
 impl RBXScriptConnection {
     pub fn is_connected(&self) -> bool {
@@ -224,6 +236,9 @@ impl Future for RBXScriptSignalFuture {
     }
 }
 impl LuaUserData for ManagedRBXScriptSignal {
+    fn add_fields<F: LuaUserDataFields<Self>>(fields: &mut F) {
+        fields.add_meta_field("__type", "RBXScriptSignal");
+    }
     fn add_methods<M: LuaUserDataMethods<Self>>(methods: &mut M) {
         methods.add_method_mut("Connect", |lua, this, func: LuaFunction| {
             this.write()
@@ -243,6 +258,8 @@ impl LuaUserData for RBXScriptConnection {
         methods.add_method_mut("Disconnect", |_, this, ()| Ok(this.disconnect()));
     }
     fn add_fields<F: LuaUserDataFields<Self>>(fields: &mut F) {
+        fields.add_meta_field("__type", "RBXScriptConnection");
+
         fields.add_field_method_get("Connected", |_, this| Ok(this.is_connected()));
     }
 }
