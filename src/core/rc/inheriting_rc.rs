@@ -231,12 +231,12 @@ where
         (t.head, t.ptr, unsafe { (&raw const t.alloc).read() })
     }
 
-    unsafe fn increment_strong_count(&self) {
+    pub unsafe fn increment_strong_count(&self) {
         if self.head.as_ref().strong.fetch_add(1, Ordering::Acquire) == 0 {
             self.head.as_ref().weak.fetch_add(1, Ordering::Relaxed);
         }
     }
-    unsafe fn decrement_strong_count(&self) -> (bool, bool) {
+    pub unsafe fn decrement_strong_count(&self) -> (bool, bool) {
         if self.head.as_ref().strong.fetch_sub(1, Ordering::Acquire) == 1 {
             (
                 true,
@@ -259,16 +259,16 @@ where
             })
             .is_ok()
     }
-    unsafe fn increment_weak_count(&self) {
+    pub unsafe fn increment_weak_count(&self) {
         self.head.as_ref().weak.fetch_add(1, Ordering::Relaxed);
     }
-    unsafe fn decrement_weak_count(&self) -> bool {
+    pub unsafe fn decrement_weak_count(&self) -> bool {
         self.head.as_ref().weak.fetch_sub(1, Ordering::Relaxed) == 1
     }
-    fn strong_count(&self) -> u32 {
+    pub fn strong_count(&self) -> u32 {
         unsafe { self.head.as_ref().strong.load(Ordering::Relaxed) }
     }
-    fn weak_count(&self) -> u32 {
+    pub fn weak_count(&self) -> u32 {
         unsafe { self.head.as_ref().weak.load(Ordering::Relaxed) }
     }
 }

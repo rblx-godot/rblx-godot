@@ -1,6 +1,6 @@
 use std::{ffi::c_int, mem::take, ptr::slice_from_raw_parts};
 
-use crate::instance::WeakManagedInstance;
+use crate::core::WeakManagedInstance;
 use r2g_mlua::{
     ffi::{
         self, luaL_checknumber, lua_State, lua_gettop, lua_pushnumber, lua_remove, lua_resume,

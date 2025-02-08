@@ -78,7 +78,7 @@ pub type Vector3 = vectors::Vector3<f64>;
 pub use cframe::CFrame;
 pub use events::{ManagedRBXScriptSignal, RBXScriptConnection, RBXScriptSignal};
 
-use crate::instance::ManagedInstance;
+use crate::core::ManagedInstance;
 
 pub fn register_userdata_singletons(lua: &mut Lua) -> LuaResult<()> {
     Axes::register_singleton(lua)?;

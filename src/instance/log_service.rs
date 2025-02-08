@@ -5,14 +5,11 @@ use std::fmt::Debug;
 use crate::{
     core::{
         lua_macros::{lua_getter, lua_invalid_argument},
-        InheritanceBase, InheritanceTableBuilder, Irc, RwLock, RwLockReadGuard, RwLockWriteGuard,
+        DynInstance, IInstance, IInstanceComponent, IObject, InheritanceBase,
+        InheritanceTableBuilder, InstanceComponent, InstanceCreationMetadata, Irc, ManagedInstance,
+        RwLock, RwLockReadGuard, RwLockWriteGuard,
     },
     userdata::{enums::MessageType, ManagedRBXScriptSignal, RBXScriptSignal},
-};
-
-use super::{
-    DynInstance, IInstance, IInstanceComponent, IObject, InstanceComponent, ManagedInstance,
-    WeakManagedInstance,
 };
 
 struct LogServiceComponent {
@@ -82,19 +79,19 @@ impl IInstanceComponent for LogServiceComponent {
 
     fn clone(
         self: &RwLockReadGuard<'_, Self>,
-        _lua: &Lua,
-        _new_ptr: &WeakManagedInstance,
+        _: &Lua,
+        _: &InstanceCreationMetadata,
     ) -> LuaResult<Self> {
         Err(LuaError::RuntimeError(
             "Cannot clone LogServiceComponent".into(),
         ))
     }
 
-    fn new(_ptr: WeakManagedInstance, _class_name: &'static str) -> Self {
+    fn new(metadata: &InstanceCreationMetadata) -> Self {
         LogServiceComponent {
             logs: Vec::new(),
             hooks: Vec::new(),
-            message_out: RBXScriptSignal::new(),
+            message_out: RBXScriptSignal::new(metadata),
         }
     }
 }
@@ -166,15 +163,14 @@ impl IInstance for LogService {
 
 impl LogService {
     pub fn new() -> Irc<LogService> {
-        let inst = Irc::new_cyclic(|x| LogService {
-            instance: RwLock::new_with_flag_auto(InstanceComponent::new(
-                x.cast_to_instance(),
-                "LogService",
-            )),
-            log_service: RwLock::new_with_flag_auto(LogServiceComponent::new(
-                x.cast_to_instance(),
-                "LogService",
-            )),
+        let inst = Irc::new_cyclic(|x| {
+            let mut metadata = InstanceCreationMetadata::new("LogService", x.cast_to_instance());
+            let mut l = LogService {
+                instance: RwLock::new_with_flag_auto(InstanceComponent::new(&mut metadata)),
+                log_service: RwLock::new_with_flag_auto(LogServiceComponent::new(&mut metadata)),
+            };
+            DynInstance::submit_metadata(&mut l, metadata);
+            l
         });
         inst.add_hook(|x| {
             if let Some((msg, msg_type, _timestamp)) = x {

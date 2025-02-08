@@ -3,9 +3,11 @@ mod assert_gdext_api;
 pub(crate) mod debug;
 mod fastflags;
 mod inheritance;
+mod instance;
 mod instance_repl_table;
 mod instance_tag_collection;
 pub mod lua_macros;
+mod object;
 mod pointers;
 mod rc;
 mod rw_lock;
@@ -18,8 +20,14 @@ mod watchdog;
 pub(crate) use assert_gdext_api::verify_gdext_api_compat;
 pub use fastflags::*;
 pub use inheritance::*;
+pub(crate) use instance::InstanceCreationSignalList;
+pub use instance::{
+    DynInstance, IInstance, IInstanceComponent, InstanceComponent, InstanceCreationMetadata,
+    ManagedInstance, WeakManagedInstance,
+};
 pub(self) use instance_repl_table::InstanceReplicationTable;
 pub(self) use instance_tag_collection::InstanceTagCollectionTable;
+pub use object::IObject;
 pub(self) use pointers::*;
 pub use rc::*;
 pub use rw_lock::*;

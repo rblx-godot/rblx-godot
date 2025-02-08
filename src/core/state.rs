@@ -9,11 +9,8 @@ use super::{
     borrowck_ignore, FastFlag, FastFlags, Irc, RwLock, RwLockReadGuard, RwLockWriteGuard,
     TaskScheduler, Trc,
 };
-use super::{security::ThreadIdentityType, vm::RblxVM};
-use crate::instance::{
-    DataModel, DynInstance, IModuleScript, LogService, ManagedInstance, WeakManagedActor,
-    WeakManagedInstance,
-};
+use super::{DynInstance, ManagedInstance, RblxVM, ThreadIdentityType, WeakManagedInstance};
+use crate::instance::{DataModel, IModuleScript, LogService, WeakManagedActor};
 use crate::userdata::register_userdata_singletons;
 use r2g_mlua::{prelude::*, ChunkMode, Compiler};
 
@@ -123,6 +120,20 @@ impl LuauState {
                     .read()
                     .unwrap()
                     .get_log_service()
+                    .cast_from_sized::<DynInstance>()
+                    .unwrap(),
+            )
+            .unwrap();
+        self.lua
+            .globals()
+            .raw_set(
+                "workspace",
+                self.vm
+                    .as_ref()
+                    .unwrap_unchecked()
+                    .read()
+                    .unwrap()
+                    .get_workspace()
                     .cast_from_sized::<DynInstance>()
                     .unwrap(),
             )

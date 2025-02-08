@@ -30,4 +30,4 @@ return f
 script.RunContext = Enums.RunContext.Server
 print(script.Enabled)
 script.Enabled = true
-print("user initiated action:", script, game)
+print("user initiated action:", script, game, workspace, game.Workspace)

@@ -1,8 +1,8 @@
 use r2g_mlua::prelude::*;
 
 use crate::{
-    core::{get_state, lua_macros::lua_getter},
-    instance::{Actor, DynInstance, LocalScript, ManagedInstance, Model, ModuleScript, Script},
+    core::{get_state, lua_macros::lua_getter, DynInstance, ManagedInstance},
+    instance::{Actor, LocalScript, Model, ModuleScript, Script},
 };
 
 use super::LuaSingleton;

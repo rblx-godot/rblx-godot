@@ -160,6 +160,18 @@ impl RblxVMNode {
 
         log_window.append_text(&log_content);
         log_window.append_text(include_str!("startup_message.rtf"));
+
+        drop(read);
+        #[cfg(debug_assertions)]
+        {
+            std::panic::always_abort();
+            unsafe {
+                vm.write().unwrap().get_log_service().log_warn(
+                    vm.access().as_mut().unwrap().get_main_state().get_lua(),
+                    format!("Debug build detected. Automatically aborting on panic."),
+                );
+            }
+        }
     }
 }
 

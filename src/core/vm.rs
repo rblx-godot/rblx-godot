@@ -9,7 +9,7 @@ use std::sync::Arc;
 use r2g_mlua::prelude::*;
 
 use crate::core::scheduler::GlobalTaskScheduler;
-use crate::instance::{DataModel, IDataModel, LogService, RunService, WeakManagedActor};
+use crate::instance::{DataModel, IDataModel, LogService, RunService, WeakManagedActor, Workspace};
 
 use super::state::LuauState;
 use super::{
@@ -92,7 +92,6 @@ impl RblxVM {
                 .as_mut()
                 .unwrap_unchecked()
                 .bind_services();
-
             vm
         }
     }
@@ -220,6 +219,9 @@ impl RblxVM {
     }
     pub fn get_run_service(&self) -> Irc<RunService> {
         <dyn IDataModel>::get_run_service(&*self.get_game_instance())
+    }
+    pub fn get_workspace(&self) -> Irc<Workspace> {
+        <dyn IDataModel>::get_workspace(&*self.get_game_instance())
     }
 }
 

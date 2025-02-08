@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::instance::WeakManagedInstance;
+use crate::core::WeakManagedInstance;
 
 use super::RwLock;
 

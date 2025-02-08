@@ -2,8 +2,8 @@
 
 use convert_case::Casing;
 use parse::{
-    parse_lua_fn_attr, Instance, InstanceConfig, InstanceConfigAttr, LuaFunctionData,
-    LuaPropertyData,
+    parse_lua_fn_attr, AttrArguments, Instance, InstanceConfig, InstanceConfigAttr,
+    LuaFunctionData, LuaPropertyData,
 };
 use proc_macro2::Span;
 use quote::{quote, ToTokens};
@@ -465,12 +465,48 @@ pub fn methods(
 
 #[proc_macro_attribute]
 pub fn lua_enum(
-    _item: proc_macro::TokenStream,
+    arguments: proc_macro::TokenStream,
     ts: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
     let enum_block: ItemEnum = parse_macro_input!(ts);
     let name = enum_block.ident.clone();
     let vis = enum_block.vis.clone();
+
+    let args: AttrArguments = parse_macro_input!(arguments);
+
+    let default_impl = if let Some(default) = args.get_named_arg("default") {
+        let default_val = &default.value;
+        let default_name: Ident = {
+            let default_name_arg = args.get_named_arg("default_name").map(|x| x.value.clone());
+            match default_name_arg {
+                Some(x) => match x.try_into() {
+                    Ok(x) => x,
+                    Err(e) => {
+                        return e.into_compile_error().into();
+                    }
+                },
+                None => Ident::new("Default", Span::call_site()),
+            }
+        };
+        quote! {
+            impl Default for #name {
+                fn default() -> Self {
+                    Self::#default_name
+                }
+            }
+
+            impl #name {
+                pub const fn collapse_default(self) -> Self {
+                    match self {
+                        Self::#default_name => Self::#default_val,
+                        x => x
+                    }
+                }
+            }
+        }
+    } else {
+        quote! {}
+    };
 
     let mut last_index: Option<usize> = None;
     let mut variants = vec![];
@@ -623,6 +659,8 @@ pub fn lua_enum(
                 #(#variant_fields)*
             }
         }
+
+        #default_impl
     }
     .into()
 }

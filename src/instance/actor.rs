@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 
-use super::{
-    pvinstance::IPVInstance, DynInstance, IInstance, IInstanceComponent, IModel, IObject,
-    InstanceComponent, ManagedInstance, ModelComponent, PVInstanceComponent,
+use super::{IModel, IPVInstance, ModelComponent, PVInstanceComponent};
+use crate::core::{
+    DynInstance, IInstance, IInstanceComponent, IObject, InstanceComponent,
+    InstanceCreationMetadata, ManagedInstance,
 };
 use crate::{
     core::{
@@ -125,14 +126,18 @@ impl IInstance for Actor {
 
     fn clone_instance(&self, lua: &Lua) -> LuaResult<ManagedInstance> {
         Ok(Irc::new_cyclic_fallable::<_, LuaError>(|x| {
-            let i = x.cast_to_instance();
+            let metadata = InstanceCreationMetadata::new("Actor", x.cast_to_instance());
             let state = self.state.read().get_vm_mut().create_sub_state(x);
             let a = Actor {
-                instance: RwLock::new_with_flag_auto(self.get_instance_component().clone(lua, &i)?),
-                pvinstance: RwLock::new_with_flag_auto(
-                    self.get_pv_instance_component().clone(lua, &i)?,
+                instance: RwLock::new_with_flag_auto(
+                    self.get_instance_component().clone(lua, &metadata)?,
                 ),
-                model: RwLock::new_with_flag_auto(self.get_model_component().clone(lua, &i)?),
+                pvinstance: RwLock::new_with_flag_auto(
+                    self.get_pv_instance_component().clone(lua, &metadata)?,
+                ),
+                model: RwLock::new_with_flag_auto(
+                    self.get_model_component().clone(lua, &metadata)?,
+                ),
                 state,
                 messages_bound: RwLock::new(HashMap::new()),
             };
@@ -169,18 +174,15 @@ impl IModel for Actor {
 
 impl Actor {
     pub fn new(mut vm: RwLockWriteGuard<'_, RblxVM>) -> ManagedInstance {
-        let actor: Irc<DynInstance> = Irc::new_cyclic(|x| Actor {
-            instance: RwLock::new_with_flag_auto(InstanceComponent::new(
-                x.cast_to_instance(),
-                "Actor",
-            )),
-            pvinstance: RwLock::new_with_flag_auto(PVInstanceComponent::new(
-                x.cast_to_instance(),
-                "Actor",
-            )),
-            model: RwLock::new_with_flag_auto(ModelComponent::new(x.cast_to_instance(), "Actor")),
-            state: vm.create_sub_state(x),
-            messages_bound: RwLock::new(HashMap::new()),
+        let actor: Irc<DynInstance> = Irc::new_cyclic(|x| {
+            let metadata = InstanceCreationMetadata::new("Actor", x.cast_to_instance());
+            Actor {
+                instance: RwLock::new_with_flag_auto(InstanceComponent::new(&metadata)),
+                pvinstance: RwLock::new_with_flag_auto(PVInstanceComponent::new(&metadata)),
+                model: RwLock::new_with_flag_auto(ModelComponent::new(&metadata)),
+                state: vm.create_sub_state(x),
+                messages_bound: RwLock::new(HashMap::new()),
+            }
         })
         .cast_from_sized()
         .unwrap();
@@ -202,7 +204,8 @@ impl Actor {
         if let Some(sig) = messages_bound.get(&topic) {
             sig.write().connect(lua, function, Synchronized)
         } else {
-            let sig = RBXScriptSignal::new();
+            let sig =
+                RBXScriptSignal::new_internal(self.get_instance_component_mut().get_signal_list());
             let conn = sig.write().connect(lua, function, Synchronized);
             messages_bound.insert(topic, sig.clone());
             conn
@@ -223,7 +226,8 @@ impl Actor {
         if let Some(sig) = messages_bound.get(&topic) {
             sig.write().connect(lua, function, Desynchronized)
         } else {
-            let sig = RBXScriptSignal::new();
+            let sig =
+                RBXScriptSignal::new_internal(self.get_instance_component_mut().get_signal_list());
             let conn = sig.write().connect(lua, function, Desynchronized);
             messages_bound.insert(topic, sig.clone());
             conn

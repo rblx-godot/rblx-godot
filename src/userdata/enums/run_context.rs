@@ -7,3 +7,9 @@ pub enum RunContext {
     Client,
     Plugin,
 }
+
+impl Default for RunContext {
+    fn default() -> Self {
+        Self::Legacy
+    }
+}
