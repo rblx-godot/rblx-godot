@@ -7,6 +7,8 @@
 #![feature(panic_always_abort)]
 #![allow(internal_features)]
 #![feature(core_intrinsics)]
+#![feature(allocator_api)]
+#![feature(specialization)]
 
 #[rustversion::not(nightly)]
 compile_error!(

@@ -2,10 +2,10 @@ use r2g_mlua::prelude::*;
 
 use crate::core::lua_macros::lua_getter;
 use crate::core::{
-    get_state, get_state_with_rwlock, DynInstance, FastFlag, IInstance, IInstanceComponent,
-    IObject, InheritanceBase, InheritanceTable, InheritanceTableBuilder, InstanceComponent,
-    InstanceCreationMetadata, Irc, LuauState, ManagedInstance, RwLock, RwLockReadGuard,
-    RwLockWriteGuard, Trc,
+    borrowck_ignore_mut, get_state, get_state_with_rwlock, DynInstance, FastFlag, IInstance,
+    IInstanceComponent, IObject, InheritanceBase, InheritanceTable, InheritanceTableBuilder,
+    InstanceComponent, InstanceCreationMetadata, Irc, LuauState, ManagedInstance, RwLock,
+    RwLockReadGuard, RwLockWriteGuard, Trc, TrcWriteLock,
 };
 use crate::userdata::{ManagedRBXScriptSignal, RBXScriptSignal};
 
@@ -29,6 +29,7 @@ impl InheritanceBase for RunService {
         InheritanceTableBuilder::new()
             .insert_type::<RunService, dyn IObject>(|x| x, |x| x)
             .insert_type::<RunService, DynInstance>(|x| x, |x| x)
+            .insert_type::<RunService, RunService>(|x| x, |x| x)
             .output()
     }
 }
@@ -169,5 +170,26 @@ impl RunService {
         let mut write = self.render_steps.write().unwrap();
         write.retain(|x| x.0 != name);
         Ok(())
+    }
+    pub(crate) fn execute_render_steps<'vm: 'state + 'lua, 'state, 'lua>(
+        &'vm self,
+        lua: &Lua,
+        delta: f64,
+    ) {
+        self.pre_render.write().fire(lua, (delta,)).unwrap();
+        let read = self.render_steps.read().unwrap();
+        for (_, _, (state_ref, func)) in read.iter() {
+            let mut state: Trc<LuauState> = state_ref.clone();
+            let mut write;
+            let lua;
+            unsafe {
+                write = borrowck_ignore_mut(&mut state).write();
+                lua = borrowck_ignore_mut(&mut write).get_lua();
+                borrowck_ignore_mut(&mut write)
+                    .get_task_scheduler()
+                    .spawn_func(lua, func.clone(), (delta,))
+                    .unwrap();
+            }
+        }
     }
 }

@@ -10,18 +10,26 @@ use super::{
     TaskScheduler, Trc,
 };
 use super::{DynInstance, ManagedInstance, RblxVM, ThreadIdentityType, WeakManagedInstance};
-use crate::instance::{DataModel, IModuleScript, LogService, WeakManagedActor};
+use crate::instance::{DataModel, IModuleScript, LogService, RunService, WeakManagedActor};
 use crate::userdata::register_userdata_singletons;
 use r2g_mlua::{prelude::*, ChunkMode, Compiler};
 
 pub mod registry_keys {
     pub const VM_REGISTRYKEY: &'static str = "__vm__";
+
     pub const STATE_REGISTRYKEY: &'static str = "__state__";
+
     pub const LOG_SERVICE_REGISTRYKEY: &'static str = "__log_service__";
+
     pub const DATA_MODEL_REGISTRYKEY: &'static str = "__data_model__";
+
     pub(super) const TASK_PUSH_WAIT: &'static str = "__task_push_wait__";
+
     pub(super) const TASK_PUSH_SYNC_DESYNC: &'static str = "__task_push_sync_desync__";
+
     pub const ACTOR_REGISTRYKEY: &'static str = "__actor__";
+
+    pub const RUN_SERVICE_REGISTRYKEY: &'static str = "__run_service__";
 }
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct ThreadIdentity {
@@ -120,6 +128,19 @@ impl LuauState {
                     .read()
                     .unwrap()
                     .get_log_service()
+                    .cast_from_sized::<DynInstance>()
+                    .unwrap(),
+            )
+            .unwrap();
+        self.lua
+            .set_named_registry_value(
+                registry_keys::RUN_SERVICE_REGISTRYKEY,
+                self.vm
+                    .as_ref()
+                    .unwrap_unchecked()
+                    .read()
+                    .unwrap()
+                    .get_run_service()
                     .cast_from_sized::<DynInstance>()
                     .unwrap(),
             )
@@ -596,6 +617,13 @@ impl LuauState {
             .named_registry_value::<ManagedInstance>(registry_keys::DATA_MODEL_REGISTRYKEY)
             .unwrap()
             .cast_from_unsized::<DataModel>()
+            .unwrap()
+    }
+    pub fn get_run_service(&self) -> Irc<RunService> {
+        self.lua
+            .named_registry_value::<ManagedInstance>(registry_keys::RUN_SERVICE_REGISTRYKEY)
+            .unwrap()
+            .cast_from_unsized::<RunService>()
             .unwrap()
     }
 }

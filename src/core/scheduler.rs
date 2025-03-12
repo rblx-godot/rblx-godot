@@ -81,9 +81,9 @@ impl dyn ITaskScheduler {
             ParallelDispatch::Desynchronized => true,
         }) as usize
     }
-    pub fn spawn_func(
-        &self,
-        lua: &Lua,
+    pub fn spawn_func<'state: 'lua, 'lua>(
+        &'state self,
+        lua: &'lua Lua,
         func: LuaFunction,
         args: impl IntoLuaMulti,
     ) -> LuaResult<LuaThread> {
@@ -500,15 +500,17 @@ impl GlobalTaskScheduler {
     pub fn as_dyn_mut(&mut self) -> &mut dyn ITaskScheduler {
         unsafe { &mut *((&raw mut self.task) as *mut dyn ITaskScheduler) }
     }
-    pub fn frame_step(mut vm: RwLockWriteGuard<RblxVM>, _: f64) -> LuaResult<()> {
+    pub fn frame_step(mut vm: RwLockWriteGuard<RblxVM>, delta: f64) -> LuaResult<()> {
         // SAFETY: This function avoids the borrow checker since the main state outlives global task scheduler.
         let main_state = unsafe { borrowck_ignore_mut(vm.get_main_state()) };
 
         let lua = main_state.get_lua().clone();
-        let task = main_state.get_task_scheduler_mut();
         unsafe { vm.set_global_lock_state(false) };
         vm.push_global_lock_atomic();
         vm.watchdog_reset();
+        let run_service = main_state.get_run_service();
+        run_service.execute_render_steps(&lua, delta);
+        let task = main_state.get_task_scheduler_mut();
         task.defer_cycle(&lua, false)?;
         task.delay_cycle(&lua, false)?;
         // todo! run service events
