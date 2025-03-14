@@ -17,7 +17,7 @@ use crate::{
 
 /// The RblxVM node, holding either a client or a server state, depending on the startup flags.
 ///
-/// [b]Note:[/b] This object is not thread-safe. It should from only a single thread.
+/// [b]Note:[/b] This object is not thread-safe. It should [i]only[/i] be used from a single thread.
 #[derive(GodotClass)]
 #[class(base=Node,rename=RblxVM)]
 pub struct RblxVMNode {

@@ -1,5 +1,4 @@
 #![allow(dead_code)]
-#![feature(trait_upcasting)]
 #![feature(ptr_metadata)]
 #![feature(arbitrary_self_types)]
 #![feature(negative_impls)]
@@ -8,7 +7,6 @@
 #![allow(internal_features)]
 #![feature(core_intrinsics)]
 #![feature(allocator_api)]
-#![feature(specialization)]
 
 #[rustversion::not(nightly)]
 compile_error!(

@@ -19,12 +19,12 @@ script.Source = [[
 
 module_script.Parent = script
 module_script.Source = [[
-local module = {}
-print("hiiii from module script :3")
-local f = function()
-	warn("meeeowwww :3")
-end
-return f
+	local module = {}
+	print("hiiii from module script :3")
+	local f = function()
+		warn("meeeowwww :3")
+	end
+	return f
 ]]
 
 script.RunContext = Enums.RunContext.Server
