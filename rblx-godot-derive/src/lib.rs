@@ -1,19 +1,30 @@
 #![feature(if_let_guard)]
 
+use std::collections::HashMap;
+
 use convert_case::Casing;
-use parse::{
-    parse_lua_fn_attr, AttrArguments, Instance, InstanceConfig, InstanceConfigAttr,
-    LuaFunctionData, LuaPropertyData,
-};
-use proc_macro2::Span;
-use quote::{quote, ToTokens};
+use inheritance::create_inheritance_map;
+use object::{ObjectMask, PartialObjectClassInfo, VirtualLuaFunctionInfo};
+use parse::AttrArguments;
+use proc_macro2::{Span, TokenStream};
+use quote::{quote, quote_spanned, ToTokens};
 use syn::{
     parse::Parser, parse_macro_input, punctuated::Punctuated, spanned::Spanned, Error, ExprArray,
-    Field, Ident, ItemEnum, ItemImpl, LitStr, Path, PathSegment, Token, TraitBound, TypeParamBound,
-    TypeTraitObject,
+    Field, Ident, ImplItem, ItemEnum, ItemImpl, ItemStruct, LitStr, Path, PathSegment, Token,
+    TraitBound, TypeParamBound, TypeTraitObject,
 };
 use utils::camel_case_to_snake_case;
 
+use crate::{
+    instance::{InstanceMask, PartialInstanceClassInfo},
+    object::{LuaFunctionInfo, ObjectPropertyInfo, SecurityContext},
+    parse::{AttrArgValue, AttrNamedArg},
+    utils::snake_case_to_camel_case,
+};
+
+mod inheritance;
+mod instance;
+mod object;
 mod parse;
 mod utils;
 
@@ -22,404 +33,9 @@ macro_rules! error_cattr {
         syn::Error::new($span, $err).into_compile_error()
     };
 }
-
+/*
 #[proc_macro_attribute]
-pub fn instance(
-    item: proc_macro::TokenStream,
-    ts: proc_macro::TokenStream,
-) -> proc_macro::TokenStream {
-    let item: Punctuated<InstanceConfigAttr, Token![,]> =
-        match Punctuated::parse_terminated.parse(item) {
-            Ok(s) => s,
-            Err(e) => return e.into_compile_error().into(),
-        };
-
-    // convert punct to conf
-    let mut no_clone = None;
-    let mut parent_locked = None;
-    let mut hierarchy: Option<Vec<syn::Path>> = None;
-    let mut custom_new = None;
-    let mut requires_init = None;
-
-    for ca in item {
-        match ca {
-            InstanceConfigAttr::NoClone(b, _, span) => {
-                if no_clone.is_none() {
-                    no_clone = Some(b)
-                } else {
-                    return error_cattr!(span, "`no_clone` specified twice").into();
-                }
-            }
-            InstanceConfigAttr::ParentLocked(b, _eq, span) => {
-                if parent_locked.is_none() {
-                    parent_locked = Some(b)
-                } else {
-                    return error_cattr!(span, "`parent_locked` specified twice").into();
-                }
-            }
-            InstanceConfigAttr::Hierarchy(_eq, _bracket, punctuated, span) => {
-                if hierarchy.is_none() {
-                    hierarchy = Some(punctuated.into_iter().collect())
-                } else {
-                    return error_cattr!(span, "`hierarchy` specified twice").into();
-                }
-            }
-            InstanceConfigAttr::CustomNew(b, _eq, span) => {
-                if custom_new.is_none() {
-                    custom_new = Some(b)
-                } else {
-                    return error_cattr!(span, "`custom_new` specified twice").into();
-                }
-            }
-            InstanceConfigAttr::RequiresInit(b, _eq, span) => {
-                if requires_init.is_none() {
-                    requires_init = Some(b)
-                } else {
-                    return error_cattr!(span, "`requires_init` specified twice").into();
-                }
-            }
-        }
-    }
-
-    let ic = InstanceConfig {
-        no_clone: no_clone.unwrap_or(false),
-        parent_locked: parent_locked.unwrap_or(false),
-        hierarchy: hierarchy.unwrap_or(vec![]),
-        custom_new: custom_new.unwrap_or(false),
-        requires_init: requires_init.unwrap_or(false),
-    };
-    let ts1 = ts.clone(); // temporary
-    let mut inst: Instance = parse_macro_input!(ts1);
-
-    let mut lua_fns: Vec<LuaFunctionData> = vec![];
-    let mut taken = vec![];
-    let mut i = 0;
-    while i < inst.attrs.len() {
-        if inst.attrs[i].path().is_ident("method") {
-            taken.push(inst.attrs.swap_remove(i)); // Swap and remove the matching item
-        } else {
-            i += 1; // Only increment if no removal
-        }
-    }
-
-    for attr in taken {
-        lua_fns.push(match parse_lua_fn_attr(attr) {
-            Ok(s) => s,
-            Err(e) => return e.into_compile_error().into(),
-        });
-    }
-
-    let mut rust_fields: Vec<Field> = vec![];
-    let mut lua_fields: Vec<LuaPropertyData> = vec![];
-
-    for i in inst.contents.named {
-        match i {
-            parse::InstanceContent::RustField { rust_field } => rust_fields.push(rust_field),
-            parse::InstanceContent::LuaField {
-                lua_field,
-                rust_field,
-            } => {
-                if !lua_field.transparent {
-                    rust_fields.push(rust_field);
-                }
-                lua_fields.push(lua_field);
-            }
-        }
-    }
-
-    let (attr, vis, struct_token, gens, ident) = (
-        inst.attrs,
-        inst.vis,
-        inst.struct_token,
-        inst.generics,
-        inst.ident,
-    );
-
-    let component_name = Ident::new(&(ident.to_string() + "Component"), ident.span());
-    let trait_name = Ident::new(&("I".to_owned() + &ident.to_string()), ident.span());
-
-    let snake = ident.to_string().to_case(convert_case::Case::Snake);
-    let snake_id = Ident::new(&snake, ident.span());
-    let mut component_get_name = String::from("get_");
-    component_get_name.push_str(&snake);
-    component_get_name.push_str("_component");
-
-    let mut component_get_mut_name = String::from("get_");
-    component_get_mut_name.push_str(&snake);
-    component_get_mut_name.push_str("_component_mut");
-
-    let (cgn, cgmn) = (
-        Ident::new(&component_get_name, ident.span()),
-        Ident::new(&component_get_mut_name, ident.span()),
-    );
-
-    let inherited_names: Vec<LitStr> = ic
-        .hierarchy
-        .iter()
-        .map(|i| LitStr::new(&i.segments.last().unwrap().ident.to_string(), i.span()))
-        .collect();
-
-    let inherited: Vec<syn::Path> = ic
-        .hierarchy
-        .into_iter()
-        .into_iter()
-        .map(|i| syn::Path {
-            leading_colon: i.leading_colon,
-            segments: {
-                let mut punct: Punctuated<PathSegment, Token![::]> = Punctuated::new();
-
-                let len = i.segments.len();
-
-                for (i, mut element) in i.segments.into_iter().enumerate() {
-                    if i < len - 1 {
-                        punct.push(element);
-                    } else {
-                        element.ident = Ident::new(
-                            &("I".to_owned() + &element.ident.to_string()),
-                            element.ident.span(),
-                        );
-                        punct.push(element);
-                    }
-                }
-
-                punct
-            },
-        })
-        .collect();
-
-    let s = LitStr::new(&ident.to_string(), ident.span());
-
-    let iinstance_lua_get = {
-        // todo: add more features (e.g. security enforcement)
-        let mut quotes: Vec<proc_macro2::TokenStream> = vec![];
-        for f in &lua_fields {
-            if f.transparent {
-                if let Some(get) = &f.get {
-                    let name = LitStr::new(&f.name, Span::call_site());
-                    quotes.push(quote! {
-                        #name => Some(lua_getter!(lua, #get(ptr, lua)))
-                    });
-                } else {
-                    return syn::Error::new(f.span, "has no getter despite being transparent")
-                        .into_compile_error()
-                        .into();
-                }
-            } else if let Some(get) = &f.get {
-                let name = LitStr::new(&f.name, Span::call_site());
-                quotes.push(quote! {
-                    #name => Some(lua_getter!(lua, #get(ptr, lua)))
-                });
-            } else {
-                let lua_name = LitStr::new(&f.name, Span::call_site());
-                let rust_name = &f.rust_name;
-
-                quotes.push(quote! {
-                    #lua_name => Some(lua_getter!(clone, lua, self.#rust_name))
-                });
-            }
-        }
-
-        quotes
-    };
-
-    let field_news = {
-        // todo: finish this
-        let mut quotes: Vec<proc_macro2::TokenStream> = vec![];
-
-        for f in &lua_fields {
-            if let Some(s) = &f.default {
-                let n = &f.rust_name;
-                if let Some(s) = s {
-                    quotes.push(quote! {
-                        #n: #s
-                    });
-                } else {
-                    quotes.push(quote! {
-                        #n: Default::default()
-                    });
-                }
-            } else {
-                return syn::Error::new(
-                    f.span,
-                    "default impl required for field (use Option if you don't have one)",
-                )
-                .into_compile_error()
-                .into();
-            }
-        }
-
-        quotes
-    };
-
-    let iinstance_lua_set = {
-        // todo: add more features (e.g. security enforcement)
-        let mut quotes: Vec<proc_macro2::TokenStream> = vec![];
-
-        for f in lua_fields {
-            if f.readonly {
-                let name = LitStr::new(&f.name, Span::call_site());
-                quotes.push(quote! {
-                    #name => Some(Err(r2g_mlua::prelude::LuaError::RuntimeError("Cannot set read only property.".into())))
-                });
-            }
-        }
-
-        quotes
-    };
-
-    quote! {
-        //static DEBUG: &str = #ls;
-        // static IC: &str = #moar;
-        // static RECEIVED_CODE: &str = #code;
-        // static FNS: &str = #lua_fns;
-        #(#attr)* #vis #struct_token #gens #component_name {
-            #(#rust_fields),*
-        }
-
-        impl crate::instance::IInstanceComponent for #component_name {
-            fn new(_ptr: crate::instance::WeakManagedInstance, _class_name: &'static str) -> Self {
-                todo!("implement `new` *cleanly*. somehow. who knows how. cuz rust fields idk how to implement default/new for them here (lua fields are handled)")
-            }
-
-            fn clone(self: &crate::core::RwLockReadGuard<'_, Self>, _: &r2g_mlua::Lua, _: &crate::instance::WeakManagedInstance) -> r2g_mlua::prelude::LuaResult<Self> {
-                Err(r2g_mlua::prelude::LuaError::RuntimeError("Cannot clone DataModelComponent".into()))
-            }
-
-            fn lua_get(self: &mut crate::core::RwLockReadGuard<'_, Self>, ptr: &crate::instance::DynInstance, lua: &r2g_mlua::Lua, key: &String) -> Option<r2g_mlua::prelude::LuaResult<r2g_mlua::prelude::LuaValue>> {
-                use crate::core::lua_macros::lua_getter;
-                use crate::core::inheritance_cast_to;
-                use crate::core::lua_macros::lua_invalid_argument;
-                use r2g_mlua::prelude::IntoLua;
-                match key.as_str() {
-                    #(#iinstance_lua_get),*,
-                    _ => None
-                }
-            }
-
-            fn lua_set(self: &mut crate::core::RwLockWriteGuard<'_, Self>, _ptr: &crate::instance::DynInstance, _lua: &r2g_mlua::Lua, key: &String, _value: &r2g_mlua::prelude::LuaValue) -> Option<r2g_mlua::prelude::LuaResult<()>> {
-                use r2g_mlua::prelude::IntoLua;
-                match key.as_str() {
-                    #(#iinstance_lua_set),*,
-                    _ => None
-                }
-            }
-        }
-
-        trait #trait_name {
-            fn #cgn(&self) -> crate::core::RwLockReadGuard<'_, #component_name>;
-            fn #cgmn(&self) -> crate::core::RwLockWriteGuard<'_, #component_name>;
-        }
-
-        struct #ident {
-            // base
-            instance: crate::core::RwLock<crate::instance::InstanceComponent>,
-            // all elements in hierarchy
-            service_provider: crate::core::RwLock<crate::instance::ServiceProviderComponent>,
-            // self
-            #snake_id: crate::core::RwLock<#component_name>,
-        }
-
-        impl crate::core::InheritanceBase for #ident {
-            fn inheritance_table(&self) -> crate::core::InheritanceTable {
-                crate::core::InheritanceTableBuilder::new()
-                    .insert_type::<#ident, dyn crate::instance::IObject>(|x| x, |x| x)
-                    .insert_type::<#ident, crate::instance::DynInstance>(|x| x, |x| x)
-                    #(.insert_type::<#ident, dyn #inherited>(|x| x, |x| x))*
-                    .insert_type::<#ident, dyn #trait_name>(|x| x, |x| x)
-                    .output()
-            }
-        }
-
-        impl crate::instance::IObject for #ident {
-            fn is_a(&self, class_name: &String) -> bool {
-                match class_name.as_str() {
-                    "DataModel" => true,
-                    //"ServiceProvider" => true,
-                    "Instance" => true,
-                    "Object" => true,
-                    #(#inherited_names => true),*,
-                    #s => true,
-                    _ => false
-                }
-            }
-            fn lua_get(&self, lua: &r2g_mlua::Lua, name: String) -> r2g_mlua::prelude::LuaResult<r2g_mlua::prelude::LuaValue> {
-                use crate::instance::IInstanceComponent;
-                self.#snake_id.read().unwrap().lua_get(self, lua, &name)
-                    .or_else(|| self.service_provider.read().unwrap().lua_get(self, lua, &name))
-                    .unwrap_or_else(|| self.instance.read().unwrap().lua_get(lua, &name))
-            }
-            fn get_changed_signal(&self) -> crate::userdata::ManagedRBXScriptSignal {
-                use crate::instance::IInstance;
-                self.get_instance_component().changed.clone()
-            }
-            fn get_property_changed_signal(&self, property: String) -> crate::userdata::ManagedRBXScriptSignal {
-                use crate::instance::IInstance;
-                self.get_instance_component().get_property_changed_signal(property).unwrap()
-            }
-            fn get_class_name(&self) -> &'static str { #s }
-        }
-
-        impl #trait_name for #ident {
-            fn #cgn(&self) -> crate::core::RwLockReadGuard<'_, #component_name> {
-                self.#snake_id.read().unwrap()
-            }
-
-            fn #cgmn(&self) -> crate::core::RwLockWriteGuard<'_, #component_name> {
-                self.#snake_id.write().unwrap()
-            }
-        }
-
-        impl crate::instance::IInstance for #ident {
-            fn get_instance_component(&self) -> crate::core::RwLockReadGuard<crate::instance::InstanceComponent> {
-                self.instance.read().unwrap()
-            }
-
-            fn get_instance_component_mut(&self) -> crate::core::RwLockWriteGuard<crate::instance::InstanceComponent> {
-                self.instance.write().unwrap()
-            }
-
-            fn lua_set(&self, lua: &r2g_mlua::Lua, name: String, val: r2g_mlua::prelude::LuaValue) -> r2g_mlua::prelude::LuaResult<()> {
-                use crate::instance::IInstanceComponent;
-                self.#snake_id.write().unwrap().lua_set(self, lua, &name, &val)
-                    .or_else(|| self.service_provider.write().unwrap().lua_set(self, lua, &name, &val))
-                    .unwrap_or_else(|| self.instance.write().unwrap().lua_set(lua, &name, val))
-            }
-
-            fn clone_instance(&self, _: &r2g_mlua::Lua) -> r2g_mlua::prelude::LuaResult<crate::instance::ManagedInstance> {
-                todo!("implement this cleanly too (same issue applies, but if no_clone this is optional)")
-            }
-        }
-
-        impl crate::instance::IServiceProvider for #ident {
-            fn get_service_provider_component(&self) -> crate::core::RwLockReadGuard<crate::instance::ServiceProviderComponent> {
-                self.service_provider.read().unwrap()
-            }
-
-            fn get_service_provider_component_mut(&self) -> crate::core::RwLockWriteGuard<crate::instance::ServiceProviderComponent> {
-                self.service_provider.write().unwrap()
-            }
-
-            fn get_service(&self, service_name: String) -> r2g_mlua::prelude::LuaResult<crate::instance::ManagedInstance> {
-                self.find_service(service_name)
-                    .and_then(|x|
-                        x.ok_or_else(|| r2g_mlua::prelude::LuaError::RuntimeError("Service not found".into()))
-                    )
-            }
-
-            fn find_service(&self, service_name: String) -> r2g_mlua::prelude::LuaResult<Option<crate::instance::ManagedInstance>> {
-                crate::instance::DynInstance::find_first_child_of_class(self, service_name)
-            }
-        }
-    }.into_token_stream().into()
-}
-
-// #[proc_macro_attribute]
-// pub fn property(_item: proc_macro::TokenStream, ts: proc_macro::TokenStream) -> proc_macro::TokenStream {
-//     ts
-// }
-
-#[proc_macro_attribute]
-pub fn methods(
+pub fn object_methods(
     _item: proc_macro::TokenStream,
     ts: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
@@ -462,7 +78,7 @@ pub fn methods(
             .into();
     }
 }
-
+*/
 #[proc_macro_attribute]
 pub fn lua_enum(
     arguments: proc_macro::TokenStream,
@@ -540,7 +156,7 @@ pub fn lua_enum(
         }
     }
 
-    let variant_quotes_names: Vec<proc_macro2::TokenStream> = variants
+    let variant_quotes_names: Vec<TokenStream> = variants
         .iter()
         .map(|(variant_name, _value)| {
             let variant_name = Ident::new(variant_name, Span::call_site());
@@ -549,7 +165,7 @@ pub fn lua_enum(
             }
         })
         .collect();
-    let variant_quotes_names_only: Vec<proc_macro2::TokenStream> = variants
+    let variant_quotes_names_only: Vec<TokenStream> = variants
         .iter()
         .map(|(variant_name, _value)| {
             let variant_name = Ident::new(variant_name, Span::call_site());
@@ -559,7 +175,7 @@ pub fn lua_enum(
         })
         .collect();
 
-    let variant_fields: Vec<proc_macro2::TokenStream> = variants
+    let variant_fields: Vec<TokenStream> = variants
         .iter()
         .map(|(variant_name, _value)| {
             let variant_name = Ident::new(variant_name, Span::call_site());
@@ -686,7 +302,7 @@ pub fn create_enums(ts: proc_macro::TokenStream) -> proc_macro::TokenStream {
         }
     }
 
-    let modules: Vec<proc_macro2::TokenStream> = enums
+    let modules: Vec<TokenStream> = enums
         .iter()
         .map(|x| {
             let ident = Ident::new(&camel_case_to_snake_case(x.to_string().as_str()), x.span());
@@ -696,7 +312,7 @@ pub fn create_enums(ts: proc_macro::TokenStream) -> proc_macro::TokenStream {
         })
         .collect();
 
-    let enum_use: Vec<proc_macro2::TokenStream> = enums
+    let enum_use: Vec<TokenStream> = enums
         .iter()
         .map(|x| {
             let ident = Ident::new(&camel_case_to_snake_case(x.to_string().as_str()), x.span());
@@ -709,7 +325,7 @@ pub fn create_enums(ts: proc_macro::TokenStream) -> proc_macro::TokenStream {
         })
         .collect();
 
-    let enum_fields: Vec<proc_macro2::TokenStream> = enums
+    let enum_fields: Vec<TokenStream> = enums
         .iter()
         .map(|x| {
             let enum_type_name =
@@ -772,6 +388,1019 @@ pub fn create_enums(ts: proc_macro::TokenStream) -> proc_macro::TokenStream {
             }
         }
 
+    }
+    .into()
+}
+
+#[proc_macro_attribute]
+pub fn object_class(
+    arguments: proc_macro::TokenStream,
+    ts: proc_macro::TokenStream,
+) -> proc_macro::TokenStream {
+    let args: AttrArguments = parse_macro_input!(arguments);
+    let mut struct_block: ItemStruct = parse_macro_input!(ts);
+    let vis = struct_block.vis.clone();
+
+    let mut hierarchy;
+    if let Some(h) = args.get_named_arg("hierarchy") {
+        if let Ok(expr) = h.value.clone().try_into() {
+            if let syn::Expr::Array(arr) = expr {
+                let mut v = Vec::new();
+                for e in arr.elems.iter() {
+                    if let syn::Expr::Path(p) = e {
+                        if let Some(i) = p.path.get_ident() {
+                            v.push(i.clone());
+                        } else {
+                            return syn::Error::new(p.path.span(), "not an ident")
+                                .into_compile_error()
+                                .into();
+                        }
+                    } else {
+                        return syn::Error::new(e.span(), "not a path")
+                            .into_compile_error()
+                            .into();
+                    }
+                }
+                hierarchy = v;
+            } else {
+                return syn::Error::new(h.value.span(), "not an array")
+                    .into_compile_error()
+                    .into();
+            }
+        } else {
+            return syn::Error::new(h.value.span(), "not an expression")
+                .into_compile_error()
+                .into();
+        }
+    } else {
+        hierarchy = vec![];
+    }
+    hierarchy.push(Ident::new("Object", Span::call_site()));
+    let hierarchy = hierarchy;
+
+    let mut first_flags = ObjectMask::None;
+
+    {
+        // Verify all flags
+        if args.has_unnamed_arg("requires_init") {
+            first_flags |= ObjectMask::RequiresInit;
+        }
+        if args.has_unnamed_arg("abstract") {
+            first_flags |= ObjectMask::Abstract;
+        }
+        if args.has_unnamed_arg("signal_behavior_override") {
+            first_flags |= ObjectMask::Signals;
+        }
+        if args.has_unnamed_arg("component_requires_init") {
+            first_flags |= ObjectMask::ComponentInit;
+        }
+    }
+
+    let class_name = struct_block.ident.clone();
+    let component_class_name = Ident::new(
+        &format!("{}Component", class_name.to_string()),
+        class_name.span(),
+    );
+    let trait_name = Ident::new(&format!("I{}", class_name.to_string()), class_name.span());
+
+    let mut object_info: PartialObjectClassInfo =
+        PartialObjectClassInfo::new(&class_name, Some(&hierarchy));
+    object_info.populate_table(first_flags, &struct_block);
+
+    struct_block.ident = component_class_name.clone();
+
+    let virtual_funcs = object_info
+        .virtual_funcs
+        .iter()
+        .map(|x| (x.base_class.clone(), x.clone()))
+        .fold(
+            HashMap::new(),
+            |mut acc: HashMap<Ident, Vec<VirtualLuaFunctionInfo>>, x| {
+                acc.entry(x.0).or_insert_with(Vec::new).push(x.1);
+                acc
+            },
+        );
+
+    let inheritance_base_block = create_inheritance_map(&class_name, &hierarchy);
+    let hierarchy_inherit_block = hierarchy.iter().map(|x| {
+        if x.to_string() == "Object" || x.to_string() == "Instance" {
+            return quote! {};
+        }
+        let trait_name = Ident::new(&format!("I{}", x.to_string()), x.span());
+        let snake_case = camel_case_to_snake_case(x.to_string().as_str());
+        let fn_name = Ident::new(&format!("get_{}_component", snake_case), x.span());
+        let mut_fn_name = Ident::new(&format!("get_{}_component_mut", snake_case), x.span());
+        let component_name = Ident::new(&format!("{}_component", snake_case), x.span());
+        let component_type = Ident::new(&format!("{}Component", x.to_string()), x.span());
+        let functions = virtual_funcs.get(x)
+            .map(|x| {
+                x.iter()
+                    .filter(|f| f.is_overriding.is_some())
+                    .map(|f| {
+                        let sig = f.func_info.sig.clone();
+                        let impl_name = Ident::new(&format!("_{}_impl", f.func_info.sig.ident), f.func_info.sig.ident.span());
+                        let span = f.func_info.span;
+                        let override_class_name = f.is_overriding.clone().unwrap();
+                        let arg_names = f.func_info.sig.inputs.iter()
+                            .filter_map(|x| {
+                                if let syn::FnArg::Typed(p) = x {
+                                    Some(p.pat.clone())
+                                } else {
+                                    None
+                                }
+                            })
+                            .map(|x| x.to_token_stream())
+                            .collect::<Vec<_>>();
+                        quote_spanned! {span=>
+                            #sig {
+                                #override_class_name::#impl_name(self, #(#arg_names),*)
+                            }
+                        }
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        quote! {
+            impl #trait_name for #class_name {
+                fn #fn_name(&self) -> crate::core::RwLockReadGuard<'_, crate::instance::#component_type> {
+                    self.#component_name.read().unwrap()
+                }
+                fn #mut_fn_name(&self) -> crate::core::RwLockWriteGuard<'_, crate::instance::#component_type> {
+                    self.#component_name.write().unwrap()
+                }
+                #(#functions)*
+            }
+        }
+    });
+    let struct_block_with_components;
+    {
+        let hierarchy_components: Vec<TokenStream> = hierarchy
+            .iter()
+            .filter(|x| x.to_string() != "Object")
+            .map(|x| {
+                let snake_case = camel_case_to_snake_case(x.to_string().as_str());
+                let component_name = Ident::new(&format!("{}_component", snake_case), x.span());
+                let component_type = Ident::new(&format!("{}Component", x.to_string()), x.span());
+                quote! {
+                    #component_name: crate::core::RwLock<crate::instance::#component_type>,
+                }
+            })
+            .collect();
+        let self_component_name = Ident::new(
+            &format!(
+                "{}_component",
+                camel_case_to_snake_case(class_name.to_string().as_str())
+            ),
+            class_name.span(),
+        );
+        struct_block_with_components = quote! {
+            struct #class_name {
+                #(#hierarchy_components)*
+                #self_component_name: crate::core::RwLock<#component_class_name>,
+            }
+        };
+    }
+    let trait_block;
+    {
+        let fn_name = Ident::new(
+            &format!(
+                "get_{}_component",
+                camel_case_to_snake_case(class_name.to_string().as_str())
+            ),
+            class_name.span(),
+        );
+        let mut_fn_name = Ident::new(
+            &format!(
+                "get_{}_component_mut",
+                camel_case_to_snake_case(class_name.to_string().as_str())
+            ),
+            class_name.span(),
+        );
+        let self_component_name = Ident::new(
+            &format!(
+                "{}_component",
+                camel_case_to_snake_case(class_name.to_string().as_str())
+            ),
+            class_name.span(),
+        );
+        trait_block = quote! {
+            trait #trait_name {
+                fn #fn_name(&self) -> crate::core::RwLockReadGuard<'_, #component_class_name>;
+                fn #mut_fn_name(&self) -> crate::core::RwLockWriteGuard<'_, #component_class_name>;
+            }
+            impl #trait_name for #class_name {
+                fn #fn_name(&self) -> crate::core::RwLockReadGuard<'_, #component_class_name> {
+                    self.#self_component_name.read().unwrap()
+                }
+                fn #mut_fn_name(&self) -> crate::core::RwLockWriteGuard<'_, #component_class_name> {
+                    self.#self_component_name.write().unwrap()
+                }
+            }
+        }
+    }
+    let iobject_impl_block;
+    {
+        let signals_defs_block;
+        let lua_get_set_block;
+        if first_flags & ObjectMask::Signals != ObjectMask::None {
+            signals_defs_block = quote! {
+                fn get_changed_signal(&self) -> crate::userdata::ManagedRBXScriptSignal {
+                    self.get_changed_signal_impl()
+                }
+                fn get_property_changed_signal(&self, property: String) -> crate::userdata::ManagedRBXScriptSignal {
+                    self.get_property_changed_signal_impl(property)
+                }
+            }
+        } else {
+            signals_defs_block = quote! {
+                fn get_changed_signal(&self) -> crate::userdata::ManagedRBXScriptSignal {
+                    self.get_instance_component().changed.clone()
+                }
+                fn get_property_changed_signal(&self, property: String) -> crate::userdata::ManagedRBXScriptSignal {
+                    self.get_instance_component().get_property_changed_signal(property).unwrap()
+                }
+            }
+        }
+        if hierarchy
+            .get(hierarchy.len() - 2)
+            .map(|x| x.to_string() == "Instance")
+            .unwrap_or(false)
+        {
+            // There is an instance component at the end. (This is an instance-deriving class)
+            let hierarchy_based_component_list_get: Vec<TokenStream> = hierarchy
+                [..hierarchy.len() - 2]
+                .iter()
+                .map(|x| {
+                    let component_name = Ident::new(
+                        &format!(
+                            "{}_component",
+                            camel_case_to_snake_case(x.to_string().as_str())
+                        ),
+                        x.span(),
+                    );
+                    quote! {
+                        .or_else(|| self.#component_name.read().unwrap().lua_get(self, lua, &name))
+                    }
+                })
+                .collect();
+            let hierarchy_based_component_list_set: Vec<TokenStream> = hierarchy[..hierarchy.len() - 2]
+                .iter()
+                .map(|x| {
+                    let component_name = Ident::new(
+                        &format!(
+                            "{}_component",
+                            camel_case_to_snake_case(x.to_string().as_str())
+                        ),
+                        x.span(),
+                    );
+                    quote! {
+                        .or_else(|| self.#component_name.read().unwrap().lua_set(self, lua, &name, &val))
+                    }
+                })
+                .collect();
+            let self_component_name = Ident::new(
+                &format!(
+                    "{}_component",
+                    camel_case_to_snake_case(class_name.to_string().as_str())
+                ),
+                class_name.span(),
+            );
+            lua_get_set_block = quote! {
+                fn lua_get(&self, lua: &r2g_mlua::Lua, name: String) -> r2g_mlua::prelude::LuaResult<r2g_mlua::prelude::LuaValue> {
+                    use crate::core::IObjectComponent;
+                    self.#self_component_name.read().unwrap().lua_get(self, lua, &name)
+                        #(#hierarchy_based_component_list_get)*
+                        .unwrap_or_else(|| self.instance_component.read().unwrap().lua_get(lua, &name))
+                }
+                fn lua_set(&self, lua: &r2g_mlua::Lua, name: String, val: r2g_mlua::prelude::LuaValue) -> r2g_mlua::prelude::LuaResult<()> {
+                    use crate::core::IObjectComponent;
+                    self.#self_component_name.write().unwrap().lua_set(self, lua, &name, &val)
+                        #(#hierarchy_based_component_list_set)*
+                        .unwrap_or_else(|| self.instance_component.write().unwrap().lua_set(lua, &name, val))
+                }
+            };
+        } else {
+            // There is no instance component at the end. (This is a non-instance-deriving class)
+            let hierarchy_based_component_list: Vec<TokenStream> = hierarchy[..hierarchy.len() - 1]
+                .iter()
+                .map(|x| {
+                    let component_name = Ident::new(
+                        &format!(
+                            "{}_component",
+                            camel_case_to_snake_case(x.to_string().as_str())
+                        ),
+                        x.span(),
+                    );
+                    quote! {
+                        .or_else(|| self.#component_name.read().unwrap().lua_get(self, lua, &name))
+                    }
+                })
+                .collect();
+            let self_component_name = Ident::new(
+                &format!(
+                    "{}_component",
+                    camel_case_to_snake_case(class_name.to_string().as_str())
+                ),
+                class_name.span(),
+            );
+            lua_get_set_block = quote! {
+                fn lua_get(&self, lua: &r2g_mlua::Lua, name: String) -> r2g_mlua::prelude::LuaResult<r2g_mlua::prelude::LuaValue> {
+                    use crate::instance::IObjectComponent;
+                    self.#self_component_name.read().unwrap().lua_get(self, lua, &name)
+                        #(#hierarchy_based_component_list)*
+                        .unwrap_or_else(|| Error(r2g_mlua::prelude::LuaError::RuntimeError(format!("Property {} does not exist on class {}", name, self.get_class_name()).into())))
+                }
+                fn lua_set(&self, lua: &r2g_mlua::Lua, name: String, val: r2g_mlua::prelude::LuaValue) -> r2g_mlua::prelude::LuaResult<()> {
+                    use crate::instance::IObjectComponent;
+                    self.#self_component_name.write().unwrap().lua_set(self, lua, &name, val)
+                        #(#hierarchy_based_component_list)*
+                        .unwrap_or_else(|| Error(r2g_mlua::prelude::LuaError::RuntimeError(format!("Property {} does not exist on class {}", name, self.get_class_name()).into())))
+                }
+            };
+        }
+        let hierarchy_slice = &hierarchy[..hierarchy.len() - 1];
+        iobject_impl_block = quote! {
+            impl crate::core::IObject for #class_name {
+                fn get_class_name(&self) -> &'static str {
+                    stringify!(#class_name)
+                }
+                fn is_a(&self, class_name: &String) -> bool {
+                    match class_name.as_str() {
+                        stringify!(#class_name)
+                        #( | stringify!(#hierarchy_slice))*
+                        | "Object"
+                        => true,
+                        _ => false
+                    }
+                }
+                #signals_defs_block
+                #lua_get_set_block
+            }
+        }
+    }
+    let obj_component_impl = {
+        let mut error_flag = None;
+        // in order: get, set, init, clone
+        let properties: Vec<(TokenStream, TokenStream, TokenStream)> = object_info.properties.iter().filter_map(|x|
+            match x {
+                ObjectPropertyInfo::Rust { name, default, .. } => {
+                    Some((
+                        quote! {},
+                        quote! {},
+                        default.as_ref().map_or_else(|| quote! { #name: core::default::Default::default() }, |x| quote! {
+                            #name: #x
+                        })
+                    ))
+                }
+                ObjectPropertyInfo::Transparent(info) => {
+                    let name = LitStr::new(info.name.as_str(), info.span);
+                    if info.get.is_none() || (info.set.is_none() && !info.readonly) {
+                        error_flag = Some(syn::Error::new(info.span, "Transparent properties must have both get and set methods defined"));
+                        return None;
+                    }
+                    let get = info.get.as_ref().unwrap();
+                    let mut get_set = if info.readonly {
+                        (
+                            quote! {
+                                #name => Some(self.#get (ptr, lua))
+                            },
+                            quote! {
+                                #name => Some(Err(r2g_mlua::prelude::LuaError::RuntimeError(format!("cannot set readonly property {}", stringify!(#name)))))
+                            },
+                        )
+                    } else {
+                        let set = info.set.as_ref().unwrap();
+                        (
+                            quote! {
+                                #name => Some(self.#get (ptr, lua))
+                            },
+                            quote! {
+                                #name => Some(self.#set (ptr, lua, value.clone()))
+                            },
+                        )
+                    };
+                    if info.security_context != SecurityContext::NONE {
+                        let (get, set) = get_set;
+                        let context = info.security_context;
+                        let l = |x| quote! {
+                                if crate::core::get_current_identity(lua).map(|x| x.get_security_contexts()).unwrap_or_default().has(#context) {
+                                    #x
+                                } else {
+                                    Err(r2g_mlua::prelude::LuaError::RuntimeError(format!("security violation in accessing property {}", stringify!(#name))))
+                                }
+                            };
+                        get_set = (
+                            l(get),
+                            l(set)
+                        );
+                    }
+                    Some((
+                        get_set.0,
+                        get_set.1,
+                        TokenStream::new()
+                    ))
+                },
+                ObjectPropertyInfo::Lua { name: property_name, ty, default, info } => {
+                    let name = Ident::new(info.name.as_str(), info.span);
+                    let mut get = if let Some(getter) = info.get.as_ref() {
+                        quote! {
+                            stringify!(#name) => Some(self.#getter(ptr, lua))
+                        }
+                    } else {
+                        quote! {
+                            stringify!(#name) => {
+                                use r2g_mlua::IntoLua;
+                                Some(self.#property_name.clone().into_lua(lua))
+                            }
+                        }
+                    };
+                    let mut set = if info.readonly {
+                        quote! {
+                            stringify!(#name) => Some(Err(r2g_mlua::prelude::LuaError::RuntimeError(format!("cannot set readonly property {}", stringify!(#name)))))
+                        }
+                    } else if let Some(setter) = info.set.as_ref() {
+                        quote! {
+                            stringify!(#name) => Some(self.#setter(ptr, lua, value.clone()))
+                        }
+                    } else {
+                        quote! {
+                            stringify!(#name) => {
+                                self.#property_name = r2g_mlua::FromLua::from_lua(value.clone(), lua)?;
+                                Some(Ok(()))
+                            }
+                        }
+                    };
+                    if info.security_context != SecurityContext::NONE {
+                        let context = info.security_context;
+                        let l = |x| quote! {
+                                if crate::core::get_current_identity(lua).map(|x| x.get_security_contexts()).unwrap_or_default().has(#context) {
+                                    #x
+                                } else {
+                                    Some(Err(r2g_mlua::prelude::LuaError::RuntimeError(format!("security violation in accessing property {}", stringify!(#name)))))
+                                }
+                            };
+                        get = l(get);
+                        set = l(set);
+                    }
+                    Some((
+                        get,
+                        set,
+                        default.as_ref().map_or_else(|| quote! { #name: core::default::Default::default() }, |x| quote! {
+                            #name: #x
+                        })
+                    ))
+                }
+            }
+        ).collect();
+        if let Some(e) = error_flag {
+            return e.into_compile_error().into();
+        }
+        let mut getters = Vec::with_capacity(properties.len());
+        let mut setters = Vec::with_capacity(properties.len());
+        let mut defaults = Vec::with_capacity(properties.len());
+        for (get, set, default) in properties {
+            if !get.is_empty() {
+                getters.push(get);
+            }
+            if !set.is_empty() {
+                setters.push(set);
+            }
+            if !default.is_empty() {
+                defaults.push(default);
+            }
+        }
+        let init_code = if first_flags & ObjectMask::ComponentInit != ObjectMask::None {
+            quote! {
+                Self::init(lua, metadata)
+            }
+        } else {
+            quote! {
+                Ok(Self {
+                    #(#defaults,)*
+                })
+            }
+        };
+        quote! {
+            #[allow(unused_variables)]
+            impl crate::core::IObjectComponent for #component_class_name {
+                fn lua_get(
+                    self: &mut crate::core::RwLockReadGuard<'_, Self>,
+                    ptr: &crate::core::DynObject,
+                    lua: &r2g_mlua::prelude::Lua,
+                    key: &String,
+                ) -> Option<r2g_mlua::prelude::LuaResult<r2g_mlua::prelude::LuaValue>> {
+                    match key.as_str() {
+                        #(#getters,)*
+                        _ => self.get_lua_method(ptr, lua, key).map(|x| x.into_lua(lua))
+                    }
+                }
+                fn lua_set(
+                    self: &mut crate::core::RwLockWriteGuard<'_, Self>,
+                    ptr: &crate::core::DynObject,
+                    lua: &r2g_mlua::prelude::Lua,
+                    key: &String,
+                    value: &r2g_mlua::prelude::LuaValue,
+                ) -> Option<r2g_mlua::prelude::LuaResult<()>> {
+                    match key.as_str() {
+                        #(#setters,)*
+                        _ => None
+                    }
+                }
+                fn new(metadata: &crate::core::ObjectCreationMetadata) -> LuaResult<Self> {
+                    #init_code
+                }
+            }
+        }
+    };
+    let object_init = if first_flags & ObjectMask::Abstract != ObjectMask::None {
+        quote! {}
+    } else {
+        let components = hierarchy[..hierarchy.len() - 1]
+            .iter()
+            .map(|x| {
+                let snake_case = camel_case_to_snake_case(x.to_string().as_str());
+                let component_name = Ident::new(&format!("{}_component", snake_case), x.span());
+                let component_type = Ident::new(&format!("{}Component", x.to_string()), x.span());
+                quote! {
+                    #component_name: crate::core::RwLock::new_with_flag_auto(crate::instance::#component_type::new(lua, &metadata)?),
+                }
+            })
+            .collect::<Vec<_>>();
+        let mut init_func = if first_flags & ObjectMask::RequiresInit != ObjectMask::None {
+            quote! {
+                obj.init();
+            }
+        } else {
+            quote! {}
+        };
+        let construction_block = if hierarchy
+            .get(hierarchy.len() - 2)
+            .map(|x| x.to_string() == "Instance")
+            .unwrap_or(false)
+        {
+            quote! {
+                let mut i = Self {
+                    #(#components,)*
+                };
+                crate::core::DynInstance::submit_metadata(&mut i, metadata);
+                i
+            }
+        } else {
+            quote! {
+                Self {
+                    #(#components,)*
+                }
+            }
+        };
+        quote! {
+            impl #class_name {
+                pub fn new(lua: &Lua) -> crate::core::Irc::<Self> {
+                    use crate::core::Irc;
+                    let obj = Irc::<Self>::new_cyclic_fallable(|x| {
+                        let metadata = crate::core::ObjectCreationMetadata::new(stringify!(#class_name), x.cast_to_object());
+
+                        #construction_block
+                    });
+
+                    #init_func
+
+                    obj
+                }
+            }
+        }
+    };
+    quote! {
+        #[derive(Debug)]
+        #struct_block
+        #[derive(Debug)]
+        #vis #struct_block_with_components
+        #inheritance_base_block
+        #vis #trait_block
+        #(#hierarchy_inherit_block)*
+        #iobject_impl_block
+        #obj_component_impl
+        #object_init
+        #object_info
+    }
+    .into()
+}
+
+#[proc_macro_attribute]
+pub fn instance_class(
+    arguments: proc_macro::TokenStream,
+    ts: proc_macro::TokenStream,
+) -> proc_macro::TokenStream {
+    let ts_clone = ts.clone();
+    let struct_block: ItemStruct = parse_macro_input!(ts_clone);
+    let args = parse_macro_input!(arguments as AttrArguments);
+
+    let mut hierarchy;
+    if let Some(h) = args.get_named_arg("hierarchy") {
+        if let Ok(expr) = h.value.clone().try_into() {
+            if let syn::Expr::Array(arr) = expr {
+                let mut v = Vec::new();
+                for e in arr.elems.iter() {
+                    if let syn::Expr::Path(p) = e {
+                        if let Some(i) = p.path.get_ident() {
+                            v.push(i.clone());
+                        } else {
+                            return syn::Error::new(p.path.span(), "not an ident")
+                                .into_compile_error()
+                                .into();
+                        }
+                    } else {
+                        return syn::Error::new(e.span(), "not a path")
+                            .into_compile_error()
+                            .into();
+                    }
+                }
+                hierarchy = v;
+            } else {
+                return syn::Error::new(h.value.span(), "not an array")
+                    .into_compile_error()
+                    .into();
+            }
+        } else {
+            return syn::Error::new(h.value.span(), "not an expression")
+                .into_compile_error()
+                .into();
+        }
+    } else {
+        hierarchy = vec![];
+    }
+    hierarchy.push(Ident::new("Instance", Span::call_site()));
+    let mut instance_flags = InstanceMask::None;
+
+    {
+        if args.has_unnamed_arg("non_constructible") {
+            instance_flags |= InstanceMask::NonConstructible;
+        }
+        if args.has_unnamed_arg("no_clone") {
+            instance_flags |= InstanceMask::NoClone;
+        }
+        if args.has_unnamed_arg("parent_change_locked") {
+            instance_flags |= InstanceMask::ParentChangeLocked;
+        }
+        if args.has_unnamed_arg("no_destruction") {
+            instance_flags |= InstanceMask::NoDestruction;
+        }
+    }
+    let mut obj_mask = ObjectMask::None;
+    let arguments = {
+        let abstract_kw = if args.has_unnamed_arg("abstract") {
+            obj_mask |= ObjectMask::Abstract;
+            quote! { "abstract", }
+        } else {
+            quote! {}
+        };
+        let requires_init_kw = if args.has_unnamed_arg("requires_init") {
+            obj_mask |= ObjectMask::RequiresInit;
+            quote! { "requires_init", }
+        } else {
+            quote! {}
+        };
+        let component_requires_init_kw = if args.has_unnamed_arg("component_requires_init") {
+            obj_mask |= ObjectMask::ComponentInit;
+            quote! { "component_requires_init", }
+        } else {
+            quote! {}
+        };
+
+        quote! {
+            hierarchy= [#(#hierarchy,)*],#abstract_kw #requires_init_kw #component_requires_init_kw
+        }
+    };
+
+    let class_name = struct_block.ident.clone();
+    let trait_name = Ident::new(&format!("I{}", class_name.to_string()), class_name.span());
+    let component_name = Ident::new(
+        &format!("{}Component", class_name.to_string()),
+        class_name.span(),
+    );
+    let snake_case = Ident::new(
+        camel_case_to_snake_case(class_name.to_string().as_str()).as_str(),
+        class_name.span(),
+    );
+
+    let info = {
+        let mut obj_class_info = PartialObjectClassInfo::new(&class_name, Some(&hierarchy));
+        obj_class_info.populate_table(obj_mask, &struct_block);
+        obj_class_info
+            .hierarchy
+            .as_mut()
+            .map(|v| v.retain(|x| x.to_string() != "Instance"));
+        PartialInstanceClassInfo::from((obj_class_info, instance_flags))
+    };
+    let instance_class_info = info.export();
+
+    let instance_component_impl = {
+        if instance_flags & InstanceMask::NoClone == InstanceMask::None {
+            let clones: Vec<_> = info
+                .properties
+                .iter()
+                .filter_map(|x| match x {
+                    ObjectPropertyInfo::Transparent(_) => None,
+                    ObjectPropertyInfo::Lua { name, .. }
+                    | ObjectPropertyInfo::Rust { name, .. } => Some(quote! {
+                        #name: self.#name.clone()
+                    }),
+                })
+                .collect();
+            quote! {
+                impl crate::core::IInstanceComponent for #component_name {
+                    fn clone(
+                        self: &RwLockReadGuard<'_, Self>,
+                        lua: &Lua,
+                        metadata: &crate::core::ObjectCreationMetadata
+                    ) -> LuaResult<Self> {
+                        Ok(Self {
+                            #(#clones,)*
+                        })
+                    }
+                }
+            }
+        } else {
+            quote! {
+                impl crate::core::IInstanceComponent for #component_name {
+                    fn clone(
+                        self: &RwLockReadGuard<'_, Self>,
+                        lua: &Lua,
+                        metadata: &ObjectCreationMetadata,
+                    ) -> LuaResult<Self> {
+                        Err(r2g_mlua::prelude::LuaError::RuntimeError(
+                            format!("Cannot clone instance of class {}", stringify!(#class_name)).into(),
+                        ))
+                    }
+                }
+            }
+        }
+    };
+
+    let clone_impl = if instance_flags & InstanceMask::NoClone == InstanceMask::None {
+        let components = hierarchy
+            .iter()
+            .map(|x| {
+                let snake_case = camel_case_to_snake_case(x.to_string().as_str());
+                let component_name = Ident::new(&format!("{}_component", snake_case), x.span());
+                quote! {
+                    #component_name: crate::core::RwLock::new_with_flag_auto(self.#component_name.read().unwrap().clone(lua, &metadata)?)
+                }
+            })
+            .collect::<Vec<_>>();
+        let component_name = Ident::new(
+            &format!("{}_component", snake_case.to_string().as_str()),
+            class_name.span(),
+        );
+        quote! {
+            use crate::core::IInstanceComponent;
+            use crate::core::Irc;
+            let obj: r2g_mlua::prelude::LuaResult<Irc<Self>> = Irc::<Self>::new_cyclic_fallable(|x| {
+                let metadata = crate::core::ObjectCreationMetadata::new(stringify!(#class_name), x.cast_to_object());
+                let mut i = Self {
+                    #component_name: crate::core::RwLock::new_with_flag_auto(self.#component_name.read().unwrap().clone(lua, &metadata)?),
+                    #(#components,)*
+                };
+                crate::core::DynInstance::submit_metadata(&mut i, metadata);
+                Ok(i)
+            });
+            Ok(obj?.cast_from_sized::<crate::core::DynInstance>().unwrap())
+        }
+    } else {
+        quote! {
+            Err(r2g_mlua::prelude::LuaError::RuntimeError(
+                format!("Cannot clone instance of class {}", stringify!(#class_name)).into(),
+            ))
+        }
+    };
+
+    let object_class_def: proc_macro2::TokenStream = object_class(arguments.into(), ts).into();
+    quote! {
+        #object_class_def
+        #instance_class_info
+        #instance_component_impl
+
+        impl crate::core::IInstance for #class_name {
+            fn get_instance_component(&self) -> crate::core::RwLockReadGuard<'_, crate::instance::InstanceComponent> {
+                self.instance_component.read().unwrap()
+            }
+            fn get_instance_component_mut(&self) -> crate::core::RwLockWriteGuard<'_, crate::instance::InstanceComponent> {
+                self.instance_component.write().unwrap()
+            }
+            fn clone_instance(&self, lua: &r2g_mlua::Lua) -> r2g_mlua::prelude::LuaResult<crate::core::ManagedInstance> {
+                #clone_impl
+            }
+        }
+    }
+    .into()
+}
+
+#[proc_macro_attribute]
+pub fn object_methods(
+    arguments: proc_macro::TokenStream,
+    ts: proc_macro::TokenStream,
+) -> proc_macro::TokenStream {
+    let mut impl_block: ItemImpl = parse_macro_input!(ts);
+
+    let class_name = if let syn::Type::Path(path) = impl_block.self_ty.as_ref() {
+        if path.path.segments.len() == 1 {
+            path.path.segments[0].ident.clone()
+        } else {
+            return syn::Error::new(impl_block.self_ty.span(), "expected ident")
+                .into_compile_error()
+                .into();
+        }
+    } else {
+        return syn::Error::new(impl_block.self_ty.span(), "expected ident")
+            .into_compile_error()
+            .into();
+    };
+
+    let mut lua_funcs = Vec::new();
+    let items = std::mem::take(&mut impl_block.items)
+        .into_iter()
+        .filter_map(|x| match x {
+            ImplItem::Fn(mut func) => {
+                if let Some(_) = func
+                    .attrs
+                    .iter()
+                    .filter(|a| a.path().is_ident("override"))
+                    .next()
+                {
+                    // Function is virtual (overriding)
+                    /*let class_overriding: Ident = if let Ok(res) = s.parse_args() {
+                        res
+                    } else {
+                        return syn::Error::new(s.span(), "expected ident after override")
+                            .into_compile_error()
+                            .into();
+                    };*/
+                    func.sig.ident = Ident::new(
+                        &format!("_{}_impl", func.sig.ident.to_string()),
+                        func.sig.ident.span(),
+                    );
+                    if func.sig.asyncness.is_some() {
+                        return syn::Error::new(func.sig.span(), "virtual methods cannot be async")
+                            .into_compile_error()
+                            .into();
+                    }
+                    if func.sig.generics.params.len() > 0 {
+                        return syn::Error::new(
+                            func.sig.span(),
+                            "virtual methods cannot have generic parameters",
+                        )
+                        .into_compile_error()
+                        .into();
+                    }
+                } else if let Some(lua_method) = func
+                    .attrs
+                    .iter()
+                    .filter(|x| x.path().is_ident("lua_method"))
+                    .next()
+                {
+                    let args: AttrArguments = if let Ok(res) = lua_method.parse_args() {
+                        res
+                    } else {
+                        return syn::Error::new(
+                            lua_method.span(),
+                            "expected arguments after lua_method",
+                        )
+                        .into_compile_error()
+                        .into();
+                    };
+                    let name = args
+                        .get_named_arg("name")
+                        .map(|x| &x.value)
+                        .and_then(|x| match x {
+                            AttrArgValue::Expr(syn::Expr::Lit(syn::ExprLit {
+                                lit: syn::Lit::Str(s),
+                                ..
+                            })) => Some(s.value()),
+                            _ => None,
+                        })
+                        .unwrap_or(snake_case_to_camel_case(
+                            func.sig.ident.to_string().as_str(),
+                        ));
+                    if func.sig.asyncness.is_some() {
+                        return syn::Error::new(func.sig.span(), "Lua methods cannot be async")
+                            .into_compile_error()
+                            .into();
+                    }
+                    if func.sig.generics.params.len() > 0 {
+                        return syn::Error::new(
+                            func.sig.span(),
+                            "virtual methods cannot have generic parameters",
+                        )
+                        .into_compile_error()
+                        .into();
+                    }
+                    let security_context = match args
+                        .get_named_arg("security_context")
+                        .map(|x| match &x.value {
+                            AttrArgValue::Expr(syn::Expr::Lit(syn::ExprLit {
+                                lit: syn::Lit::Str(s),
+                                ..
+                            })) => Ok(match s.value().as_str() {
+                                "None" => SecurityContext::NONE,
+                                "LocalUser" => SecurityContext::LOCAL_USER,
+                                "Plugin" => SecurityContext::PLUGIN,
+                                "Roblox" => SecurityContext::ROBLOX,
+                                "RobloxScript" => SecurityContext::ROBLOX_SCRIPT,
+                                "TestLocalUser" => SecurityContext::TEST_LOCAL_USER,
+                                "WritePlayer" => SecurityContext::WRITE_PLAYER,
+                                _ => {
+                                    return Err(syn::Error::new(
+                                        s.span(),
+                                        "invalid security context",
+                                    ))
+                                }
+                            }),
+                            _ => Err(syn::Error::new(
+                                x.span(),
+                                "expected string literal for security_context",
+                            )),
+                        })
+                        .unwrap_or(Ok(SecurityContext::NONE))
+                    {
+                        Ok(context) => context,
+                        Err(e) => return e.into_compile_error().into(),
+                    };
+                    lua_funcs.push(LuaFunctionInfo {
+                        lua_name: name,
+                        security_context,
+                        sig: func.sig.clone(),
+                        span: func.span(),
+                    });
+                }
+                Some(func.to_token_stream())
+            }
+            ImplItem::Const(const_item) => Some(const_item.to_token_stream()),
+            ImplItem::Type(type_item) => Some(type_item.to_token_stream()),
+            ImplItem::Macro(macro_item) => Some(macro_item.to_token_stream()),
+            _ => {
+                return syn::Error::new(x.span(), "Unexpected item in object_methods")
+                    .into_compile_error()
+                    .into();
+            }
+        })
+        .collect::<Vec<_>>();
+    let exported_funcs = lua_funcs
+        .iter()
+        .map(|f| {
+            let lua_name = Ident::new(f.lua_name.as_str(), Span::call_site());
+            let security_context = f.security_context;
+            let sig_name = &f.sig.ident;
+            let sig_ret_type = if let syn::ReturnType::Type(_, ty) = &f.sig.output {
+                Ident::new(ty.to_token_stream().to_string().as_str(), Span::call_site())
+            } else {
+                Ident::new("()", Span::call_site())
+            };
+            let sig_args = f
+                .sig
+                .inputs
+                .iter()
+                .map(|arg| Ident::new(arg.to_token_stream().to_string().as_str(), arg.span()))
+                .collect::<Vec<_>>();
+            quote! {
+                crate::core::LuaFunctionInfo {
+                    lua_name: #lua_name,
+                    security_context: #security_context,
+                    sig: crate::core::LuaFunctionSignature {
+                        name: stringify!(#sig_name),
+                        args: &[#(#sig_args,)*],
+                        ret: stringify!(#sig_ret_type),
+                    }
+                }
+            }
+        })
+        .collect::<Vec<_>>();
+    let component_class_name = Ident::new(
+        &format!("{}Component", class_name.to_string()),
+        class_name.span(),
+    );
+    quote! {
+        impl #class_name {
+            #(#items)*
+        }
+        impl #component_class_name {
+            fn get_lua_method(
+                self: &mut crate::core::RwLockReadGuard<'_, Self>,
+                ptr_self: &crate::core::DynObject,
+                lua: &r2g_mlua::Lua,
+                name: &String
+            ) -> Option<r2g_mlua::prelude::LuaFunction> {
+                match name.as_str() {
+                    _ => None
+                }
+            }
+        }
+        impl crate::core::ObjectClass for #class_name {
+            const OBJECT_CLASS_INFO: crate::core::ObjectClassInfo = crate::core::ObjectClassInfo {
+                partial_info: <Self as crate::core::PartialObjectClass>::PARTIAL_OBJECT_CLASS_INFO,
+                method_list: &[
+                    #(#exported_funcs,)*
+                ]
+            };
+        }
     }
     .into()
 }

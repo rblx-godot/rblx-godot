@@ -37,11 +37,11 @@ impl LuaSingleton for ManagedInstance {
         table.raw_set(
             "new",
             lua.create_function(|lua, (class_name,): (String,)| match class_name.as_str() {
-                "Model" => lua_getter!(lua, Model::new()),
-                "Actor" => lua_getter!(lua, Actor::new(get_state(lua).get_vm_mut())),
-                "Script" => lua_getter!(lua, Script::new()),
-                "LocalScript" => lua_getter!(lua, LocalScript::new()),
-                "ModuleScript" => lua_getter!(lua, ModuleScript::new()),
+                "Model" => lua_getter!(lua, Model::new()?),
+                "Actor" => lua_getter!(lua, Actor::new(get_state(lua).get_vm_mut())?),
+                "Script" => lua_getter!(lua, Script::new()?),
+                "LocalScript" => lua_getter!(lua, LocalScript::new()?),
+                "ModuleScript" => lua_getter!(lua, ModuleScript::new()?),
                 _ => Err::<LuaValue, LuaError>(LuaError::RuntimeError(format!(
                     "invalid class name \"{}\"",
                     class_name

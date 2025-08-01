@@ -1,12 +1,11 @@
 use r2g_mlua::prelude::*;
 
-use crate::core::InstanceCreationMetadata;
 use crate::core::{
-    inheritance_cast_to, lua_macros::lua_invalid_argument, DynInstance, IInstance,
-    IInstanceComponent, ManagedInstance, RwLockReadGuard, RwLockWriteGuard,
+    inheritance_cast_to, lua_macros::lua_invalid_argument, IInstance, IInstanceComponent,
+    ManagedInstance, RwLockReadGuard, RwLockWriteGuard,
 };
+use crate::core::{DynObject, IObjectComponent, ObjectCreationMetadata};
 use crate::userdata::CFrame;
-
 #[derive(Debug)]
 pub struct PVInstanceComponent {
     origin: CFrame,
@@ -15,10 +14,10 @@ pub struct PVInstanceComponent {
 
 impl PVInstanceComponent {}
 
-impl IInstanceComponent for PVInstanceComponent {
+impl IObjectComponent for PVInstanceComponent {
     fn lua_get(
-        self: &mut RwLockReadGuard<'_, PVInstanceComponent>,
-        _: &DynInstance,
+        self: &mut RwLockReadGuard<'_, Self>,
+        _ptr: &DynObject,
         lua: &Lua,
         key: &String,
     ) -> Option<LuaResult<LuaValue>> {
@@ -44,8 +43,8 @@ impl IInstanceComponent for PVInstanceComponent {
     }
 
     fn lua_set(
-        self: &mut RwLockWriteGuard<'_, PVInstanceComponent>,
-        _: &DynInstance,
+        self: &mut RwLockWriteGuard<'_, Self>,
+        _ptr: &DynObject,
         _lua: &Lua,
         _key: &String,
         _value: &LuaValue,
@@ -53,22 +52,24 @@ impl IInstanceComponent for PVInstanceComponent {
         None
     }
 
+    fn new(_: &crate::core::ObjectCreationMetadata) -> LuaResult<Self> {
+        Ok(PVInstanceComponent {
+            origin: CFrame::new(),
+            pivot_offset: CFrame::new(),
+        })
+    }
+}
+
+impl IInstanceComponent for PVInstanceComponent {
     fn clone(
         self: &RwLockReadGuard<'_, PVInstanceComponent>,
         _: &Lua,
-        _: &InstanceCreationMetadata,
+        _: &ObjectCreationMetadata,
     ) -> LuaResult<Self> {
         Ok(PVInstanceComponent {
             origin: self.origin,
             pivot_offset: self.pivot_offset,
         })
-    }
-
-    fn new(_: &InstanceCreationMetadata) -> Self {
-        PVInstanceComponent {
-            origin: CFrame::new(),
-            pivot_offset: CFrame::new(),
-        }
     }
 }
 
@@ -87,3 +88,19 @@ impl dyn IPVInstance {
         write.origin = pivot * write.pivot_offset.inverse();
     }
 }
+
+/*
+use rblx_godot_derive::{instance_class, object_class, object_methods};
+//
+#[instance_class("abstract")]
+pub struct PVInstance {}
+//
+
+#[instance_class("abstract")]
+pub struct PVInstance {
+    pub(crate) pivot_offset: CFrame,
+}
+
+#[object_methods]
+impl PVInstance {}
+*/

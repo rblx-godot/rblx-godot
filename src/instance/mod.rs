@@ -8,6 +8,8 @@ mod script;
 mod service_provider;
 mod workspace;
 
+pub use crate::core::{IInstance, IInstanceComponent, IObject, InstanceComponent};
+
 pub use actor::{Actor, ManagedActor, WeakManagedActor};
 pub use data_model::{DataModel, IDataModel};
 pub use log_service::LogService;

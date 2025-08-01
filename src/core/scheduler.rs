@@ -1,6 +1,6 @@
 use std::{ffi::c_int, mem::take, ptr::slice_from_raw_parts};
 
-use crate::core::WeakManagedInstance;
+use crate::core::object::WeakManagedObject;
 use r2g_mlua::{
     ffi::{
         self, luaL_checknumber, lua_State, lua_gettop, lua_pushnumber, lua_remove, lua_resume,
@@ -397,7 +397,7 @@ impl dyn ITaskScheduler {
             _ => Ok(()),
         }
     }
-    pub fn cancel_script(&mut self, lua: &Lua, script: &WeakManagedInstance) -> LuaResult<()> {
+    pub fn cancel_script(&mut self, lua: &Lua, script: &WeakManagedObject) -> LuaResult<()> {
         for parallel in 0..1 {
             let mut v: Vec<LuaThread> = self.get_task_scheduler().defer_threads[parallel]
                 .iter()

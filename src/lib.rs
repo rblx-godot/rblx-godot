@@ -47,6 +47,7 @@ macro_rules! godot_debug {
 macro_rules! godot_debug {
     ($fmt:literal $(, $args:expr)* $(,)?) => {};
     ($thing:expr) => {};
+    (backtrace $thing:expr) => {};
 }
 pub(crate) use godot_debug;
 
@@ -62,12 +63,6 @@ unsafe impl ExtensionLibrary for RblxGodotExtension {
         match level {
             InitLevel::Scene => {
                 verify_gdext_api_compat();
-
-                // Currently, rust panicking leaves Luau in a corrupted state.
-                // I am unsure if this is due to mlua or due to task scheduler's exec raw.
-                // todo! verify if this is actually needed
-                std::panic::always_abort();
-
                 godot_print!(
                     "rblx-godot v{} (Rust runtime v{}) by {}\n",
                     env!("CARGO_PKG_VERSION"),

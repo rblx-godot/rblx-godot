@@ -2,9 +2,7 @@ use r2g_mlua::prelude::*;
 
 use crate::{
     core::{
-        lua_macros::lua_getter, DynInstance, IInstance, IInstanceComponent, IObject,
-        InheritanceBase, InheritanceTableBuilder, InstanceComponent, InstanceCreationMetadata, Irc,
-        ManagedInstance, RwLock, RwLockReadGuard, RwLockWriteGuard,
+        lua_macros::lua_getter, DynInstance, DynObject, IInstance, IInstanceComponent, IObject, IObjectComponent, InheritanceBase, InheritanceTableBuilder, InstanceComponent, Irc, ManagedInstance, ObjectCreationMetadata, RwLock, RwLockReadGuard, RwLockWriteGuard
     },
     userdata::{
         enums::{
@@ -90,6 +88,22 @@ impl IObject for Workspace {
             .unwrap_or_else(|| self.get_instance_component().lua_get(lua, &name))
     }
 
+    fn lua_set(&self, lua: &Lua, name: String, val: LuaValue) -> LuaResult<()> {
+        self.workspace_component
+            .write()
+            .unwrap()
+            .lua_set(self, lua, &name, &val)
+            .or_else(|| {
+                self.get_model_component_mut()
+                    .lua_set(self, lua, &name, &val)
+            })
+            .or_else(|| {
+                self.get_pv_instance_component_mut()
+                    .lua_set(self, lua, &name, &val)
+            })
+            .unwrap_or_else(|| self.get_instance_component_mut().lua_set(lua, &name, val))
+    }
+
     fn get_class_name(&self) -> &'static str {
         "Workspace"
     }
@@ -117,28 +131,12 @@ impl IObject for Workspace {
 }
 
 impl IInstance for Workspace {
-    fn get_instance_component(&self) -> RwLockReadGuard<InstanceComponent> {
+    fn get_instance_component(&'_ self) -> RwLockReadGuard<'_, InstanceComponent> {
         self.instance_component.read().unwrap()
     }
 
-    fn get_instance_component_mut(&self) -> RwLockWriteGuard<InstanceComponent> {
+    fn get_instance_component_mut(&'_ self) -> RwLockWriteGuard<'_, InstanceComponent> {
         self.instance_component.write().unwrap()
-    }
-
-    fn lua_set(&self, lua: &Lua, name: String, val: LuaValue) -> LuaResult<()> {
-        self.workspace_component
-            .write()
-            .unwrap()
-            .lua_set(self, lua, &name, &val)
-            .or_else(|| {
-                self.get_model_component_mut()
-                    .lua_set(self, lua, &name, &val)
-            })
-            .or_else(|| {
-                self.get_pv_instance_component_mut()
-                    .lua_set(self, lua, &name, &val)
-            })
-            .unwrap_or_else(|| self.get_instance_component_mut().lua_set(lua, &name, val))
     }
 
     fn clone_instance(&self, _: &Lua) -> LuaResult<ManagedInstance> {
@@ -166,10 +164,10 @@ impl IModel for Workspace {
     }
 }
 
-impl IInstanceComponent for WorkspaceComponent {
+impl IObjectComponent for WorkspaceComponent {
     fn lua_get(
         self: &mut RwLockReadGuard<'_, Self>,
-        _: &DynInstance,
+        _: &DynObject,
         lua: &Lua,
         key: &String,
     ) -> Option<LuaResult<LuaValue>> {
@@ -195,26 +193,16 @@ impl IInstanceComponent for WorkspaceComponent {
 
     fn lua_set(
         self: &mut RwLockWriteGuard<'_, Self>,
-        ptr: &DynInstance,
-        lua: &Lua,
-        key: &String,
-        value: &LuaValue,
+        _ptr: &DynObject,
+        _lua: &Lua,
+        _key: &String,
+        _value: &LuaValue,
     ) -> Option<LuaResult<()>> {
         todo!()
     }
 
-    fn clone(
-        self: &RwLockReadGuard<'_, Self>,
-        _: &Lua,
-        _: &InstanceCreationMetadata,
-    ) -> LuaResult<Self> {
-        Err(LuaError::RuntimeError(
-            "Cannot clone WorkspaceComponent".to_string(),
-        ))
-    }
-
-    fn new(metadata: &InstanceCreationMetadata) -> Self {
-        WorkspaceComponent {
+    fn new(metadata: &ObjectCreationMetadata) -> LuaResult<Self> {
+        Ok(WorkspaceComponent {
             persistent_loaded: RBXScriptSignal::new(metadata),
 
             air_density: 0.0,
@@ -249,26 +237,38 @@ impl IInstanceComponent for WorkspaceComponent {
             terrain: None,
             touch_events_use_collision_groups: RollOutState::Default,
             touches_use_collision_groups: false,
-        }
+        })
+    }
+}
+
+impl IInstanceComponent for WorkspaceComponent {
+    fn clone(
+        self: &RwLockReadGuard<'_, Self>,
+        _: &Lua,
+        _: &ObjectCreationMetadata,
+    ) -> LuaResult<Self> {
+        Err(LuaError::RuntimeError(
+            "Cannot clone WorkspaceComponent".to_string(),
+        ))
     }
 }
 
 impl Workspace {
-    pub fn new() -> Irc<Workspace> {
-        let inst = Irc::new_cyclic(|x| {
-            let metadata = InstanceCreationMetadata::new("Workspace", x.cast_to_instance());
+    pub fn new() -> LuaResult<Irc<Workspace>> {
+        let inst = Irc::new_cyclic_fallable(|x| {
+            let metadata = ObjectCreationMetadata::new("Workspace", x.cast_to_object());
             let mut r = Workspace {
-                instance_component: RwLock::new_with_flag_auto(InstanceComponent::new(&metadata)),
+                instance_component: RwLock::new_with_flag_auto(InstanceComponent::new(&metadata)?),
                 pvinstance_component: RwLock::new_with_flag_auto(PVInstanceComponent::new(
                     &metadata,
-                )),
-                model_component: RwLock::new_with_flag_auto(ModelComponent::new(&metadata)),
-                workspace_component: RwLock::new_with_flag_auto(WorkspaceComponent::new(&metadata)),
+                )?),
+                model_component: RwLock::new_with_flag_auto(ModelComponent::new(&metadata)?),
+                workspace_component: RwLock::new_with_flag_auto(WorkspaceComponent::new(&metadata)?),
             };
             DynInstance::submit_metadata(&mut r, metadata);
-            r
-        });
+            Ok::<_,LuaError>(r)
+        }).unwrap();
         DynInstance::set_name(&*inst, "Workspace".into()).unwrap();
-        inst
+        Ok(inst)
     }
 }

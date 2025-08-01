@@ -1,483 +1,22 @@
-use proc_macro2::Span;
 use quote::ToTokens;
 use syn::{
-    braced, bracketed,
     parse::{Parse, ParseStream},
     punctuated::Punctuated,
     spanned::Spanned,
-    token::{self, Brace, Bracket, Comma, Eq, Semi, Struct},
-    Attribute, Error, Field, Generics, Ident, LitBool, LitStr, Path, Result, Signature, Token,
-    Visibility, WhereClause,
+    Ident, Result, Token,
 };
-
-#[derive(Debug)]
-pub enum SecurityContext {
-    None,
-    PluginSecurity,
-    LocalUserSecurity,
-    RobloxScriptSecurity,
-}
-
-#[derive(Debug)]
-pub struct LuaPropertyData {
-    pub name: String,
-    pub readonly: bool,
-    pub get: Option<Path>,
-    pub set: Option<Path>,
-    pub security_context: SecurityContext,
-    pub default: Option<Option<syn::Expr>>,
-    pub not_replicated: bool,
-    pub transparent: bool,
-    pub rust_name: Ident,
-    pub span: Span,
-}
-
-#[derive(Debug)]
-pub struct LuaFunctionData {
-    pub lua_name: String,
-    pub virt: bool,
-    pub security_context: SecurityContext,
-    pub asyn: bool,
-
-    pub sig: Signature,
-}
-
-pub fn parse_lua_fn_attr(attr: Attribute) -> Result<LuaFunctionData> {
-    let (mut lua_name, mut virt, mut security_context, mut asyn, mut sig): (
-        Option<String>,
-        Option<bool>,
-        Option<SecurityContext>,
-        Option<bool>,
-        Option<Signature>,
-    ) = (None, None, None, None, None);
-
-    attr.parse_nested_meta(|pnm| {
-        let ident = match pnm.path.get_ident() {
-            Some(s) => s,
-            None => return Err(pnm.error("bad option name")),
-        };
-
-        let ident = ident.to_string();
-
-        match ident.as_str() {
-            "func" => {
-                if sig.is_some() {
-                    return Err(pnm.error("`func` specified twice or more"));
-                }
-                sig = Some(pnm.value()?.parse::<Signature>()?);
-            }
-            "name" => {
-                if lua_name.is_some() {
-                    return Err(pnm.error("`name` specified twice or more"));
-                }
-                lua_name = Some(pnm.value()?.parse::<LitStr>()?.value());
-            }
-            "virtual" => {
-                if virt.is_some() {
-                    return Err(pnm.error("`virtual` specified twice or more"));
-                }
-                virt = Some(match pnm.value() {
-                    Ok(s) => s.parse::<LitBool>()?.value(),
-                    Err(_) => true,
-                });
-            }
-            "async" => {
-                if asyn.is_some() {
-                    return Err(pnm.error("`async` specified twice or more"));
-                }
-                asyn = Some(match pnm.value() {
-                    Ok(s) => s.parse::<LitBool>()?.value(),
-                    Err(_) => true,
-                });
-            }
-            "security_context" => {
-                if security_context.is_some() {
-                    return Err(pnm.error("`security_context` specified twice or more"));
-                }
-                let value: Ident = pnm.value()?.parse()?;
-
-                let ident = value.to_string();
-                match ident.as_str() {
-                    "None" => {
-                        security_context = Some(SecurityContext::None);
-                    }
-                    "PluginSecurity" => {
-                        security_context = Some(SecurityContext::PluginSecurity);
-                    }
-                    "LocalUserSecurity" => {
-                        security_context = Some(SecurityContext::LocalUserSecurity);
-                    }
-                    "RobloxScriptSecurity" => {
-                        security_context = Some(SecurityContext::RobloxScriptSecurity);
-                    }
-                    _ => {
-                        return Err(pnm.error("unknown secuirty context"));
-                    }
-                }
-            }
-            _ => return Err(pnm.error("bad option name")),
-        }
-        Ok(())
-    })?;
-
-    Ok(LuaFunctionData {
-        lua_name: match lua_name {
-            Some(s) => s,
-            None => {
-                return Err(Error::new(
-                    attr.span(),
-                    "`name` is required, but was not given",
-                ))
-            }
-        },
-        virt: virt.unwrap_or(false),
-        security_context: security_context.unwrap_or(SecurityContext::None),
-        asyn: asyn.unwrap_or(false),
-        sig: match sig {
-            Some(s) => s,
-            None => {
-                return Err(Error::new(
-                    attr.span(),
-                    "`func` is required, but was not given",
-                ))
-            }
-        },
-    })
-}
-
-#[derive(Debug)]
-pub enum InstanceContent {
-    RustField {
-        rust_field: Field,
-    },
-    LuaField {
-        lua_field: LuaPropertyData,
-        rust_field: Field,
-    },
-}
-
-#[derive(Debug)]
-pub struct InstanceContents {
-    #[allow(unused)]
-    pub brace_token: Brace,
-    pub named: Punctuated<InstanceContent, Comma>,
-}
-
-#[derive(Debug)]
-pub struct Instance {
-    pub attrs: Vec<Attribute>,
-    pub vis: Visibility,
-    pub struct_token: Struct,
-    pub ident: Ident,
-    pub generics: Generics,
-    pub contents: InstanceContents,
-    pub semi_token: Option<Semi>,
-}
-
-pub enum InstanceConfigAttr {
-    NoClone(bool, Option<Eq>, Span),
-    ParentLocked(bool, Option<Eq>, Span),
-    Hierarchy(Eq, Bracket, Punctuated<syn::Path, Token![,]>, Span),
-    CustomNew(bool, Option<Eq>, Span),
-    RequiresInit(bool, Option<Eq>, Span),
-}
-
-macro_rules! bool_arg {
-    ($input:expr => $typ:ident | $span:expr) => {
-        match $input.parse::<Token![=]>() {
-            Ok(tok) => {
-                let b = $input.parse::<LitBool>()?;
-                Ok(Self::$typ(b.value(), Some(tok), $span))
-            },
-            Err(_) => {
-                // treat as true
-                Ok(Self::$typ(true, None, $span))
-            },
-        }
-    };
-}
-
-impl Parse for InstanceConfigAttr {
-    fn parse(input: ParseStream) -> Result<Self> {
-        let ident = input.parse::<Ident>()?;
-        let name = ident.to_string();
-
-        match name.as_str() {
-            "no_clone" => return bool_arg!(input => NoClone | ident.span()),
-            "parent_locked" => return bool_arg!(input => ParentLocked | ident.span()),
-            "custom_new" => return bool_arg!(input => CustomNew | ident.span()),
-            "requires_init" => return bool_arg!(input => RequiresInit | ident.span()),
-            "hierarchy" => {
-                // this, will be a nightmare.
-                let equals = input.parse::<Token![=]>()?;
-                let content;
-                let brackets = bracketed!(content in input);
-
-                let punct: Punctuated<syn::Path, Token![,]> =
-                    Punctuated::parse_terminated(&content)?;
-
-                return Ok(InstanceConfigAttr::Hierarchy(
-                    equals,
-                    brackets,
-                    punct,
-                    ident.span(),
-                ));
-            }
-            _ => return Err(Error::new(ident.span(), "unknown attribute")),
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct InstanceConfig {
-    pub no_clone: bool,
-    pub parent_locked: bool,
-    pub hierarchy: Vec<syn::Path>,
-    pub custom_new: bool,
-    pub requires_init: bool,
-}
-
-impl Parse for Instance {
-    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
-        let attrs = input.call(Attribute::parse_outer)?;
-        let vis = input.parse::<Visibility>()?;
-        let struct_token = input.parse::<Token![struct]>()?;
-        let ident = input.parse::<Ident>()?;
-        let generics = input.parse::<Generics>()?;
-        let (where_clause, contents, semi_token) = data_struct(input)?;
-        Ok(Instance {
-            attrs,
-            vis,
-            struct_token,
-            ident,
-            generics: Generics {
-                where_clause,
-                ..generics
-            },
-            contents,
-            semi_token,
-        })
-    }
-}
-
-fn search_attrs_field(mut field: Field) -> Result<InstanceContent> {
-    let mut filtered: Vec<(usize, &Attribute)> = field
-        .attrs
-        .iter()
-        .enumerate()
-        .filter(|(_, a)| a.path().is_ident("property"))
-        .collect();
-
-    let field_name = field.ident.clone().unwrap();
-
-    if filtered.is_empty() {
-        return Ok(InstanceContent::RustField { rust_field: field });
-    }
-
-    if filtered.len() != 1 {
-        return Err(Error::new(
-            field.span(),
-            format!(
-                "`instance`: expected 1 `property` specifier, got {}",
-                filtered.len()
-            ),
-        ));
-    } else {
-        let (idx, attr) = filtered.pop().unwrap();
-        let (
-            mut name,
-            mut readonly,
-            mut get,
-            mut set,
-            mut security_context,
-            mut default,
-            mut not_replicated,
-            mut transparent,
-        ) = (None, None, None, None, None, None, None, None);
-        if let Err(e) = attr.parse_nested_meta(|nested_meta| {
-            let ident = nested_meta.path.require_ident()?;
-            let ident = ident.to_string();
-
-            match ident.as_str() {
-                "name" => {
-                    if name.is_none() {
-                        let nname: LitStr = nested_meta.value()?.parse()?;
-                        let nname = nname.value();
-                        if nname.is_empty() {
-                            return Err(nested_meta.error("field name cannot be empty"));
-                        }
-                        name = Some(nname);
-                    } else {
-                        return Err(nested_meta.error("already specified"));
-                    }
-                }
-                "default" => {
-                    if default.is_none() {
-                        if let Ok(v) = nested_meta.value() {
-                            let expr: syn::Expr = v.parse()?;
-
-                            default = Some(Some(expr));
-                        } else {
-                            default = Some(None);
-                        }
-                    } else {
-                        return Err(nested_meta.error("already specified"));
-                    }
-                }
-                "readonly" => {
-                    if let None = readonly {
-                        if let Ok(ts) = nested_meta.value() {
-                            let b: LitBool = ts.parse()?;
-                            readonly = Some(b.value());
-                        } else {
-                            readonly = Some(true);
-                        }
-                    } else {
-                        return Err(nested_meta.error("already specified"));
-                    }
-                }
-                "get" => {
-                    if let None = get {
-                        let name: Path = nested_meta.value()?.parse()?;
-                        get = Some(name);
-                    } else {
-                        return Err(nested_meta.error("already specified"));
-                    }
-                }
-                "set" => {
-                    if let None = set {
-                        let name: Path = nested_meta.value()?.parse()?;
-                        set = Some(name);
-                    } else {
-                        return Err(nested_meta.error("already specified"));
-                    }
-                }
-                "not_replicated" => {
-                    if let None = not_replicated {
-                        if let Ok(ts) = nested_meta.value() {
-                            let b: LitBool = ts.parse()?;
-                            not_replicated = Some(b.value());
-                        } else {
-                            not_replicated = Some(true);
-                        }
-                    } else {
-                        return Err(nested_meta.error("already specified"));
-                    }
-                }
-                "transparent" => {
-                    if let None = transparent {
-                        if let Ok(ts) = nested_meta.value() {
-                            let b: LitBool = ts.parse()?;
-                            transparent = Some(b.value());
-                        } else {
-                            transparent = Some(true);
-                        }
-                    } else {
-                        return Err(nested_meta.error("already specified"));
-                    }
-                }
-                "security_context" => {
-                    if let None = security_context {
-                        let value: Ident = nested_meta.value()?.parse()?;
-
-                        let ident = value.to_string();
-
-                        match ident.as_str() {
-                            "None" => {
-                                security_context = Some(SecurityContext::None);
-                            }
-                            "PluginSecurity" => {
-                                security_context = Some(SecurityContext::PluginSecurity);
-                            }
-                            "LocalUserSecurity" => {
-                                security_context = Some(SecurityContext::LocalUserSecurity);
-                            }
-                            "RobloxScriptSecurity" => {
-                                security_context = Some(SecurityContext::RobloxScriptSecurity);
-                            }
-                            _ => {
-                                return Err(nested_meta.error("unknown secuirty context"));
-                            }
-                        }
-                    } else {
-                        return Err(nested_meta.error("already specified"));
-                    }
-                }
-                _ => {
-                    return Err(nested_meta.error("unknown attribute"));
-                }
-            }
-            Ok(())
-        }) {
-            return Err(e);
-        };
-
-        let lpa = LuaPropertyData {
-            name: match name {
-                Some(s) => s,
-                None => return Err(Error::new(attr.span(), "name must be specified")),
-            },
-            readonly: readonly.unwrap_or(false),
-            get,
-            set,
-            security_context: security_context.unwrap_or(SecurityContext::None),
-            default,
-            not_replicated: not_replicated.unwrap_or(false),
-            transparent: transparent.unwrap_or(false),
-            span: field.span(),
-            rust_name: field_name,
-        };
-
-        field.attrs.remove(idx);
-
-        return Ok(InstanceContent::LuaField {
-            lua_field: lpa,
-            rust_field: field,
-        });
-    }
-}
-
-impl Parse for InstanceContent {
-    fn parse(input: ParseStream) -> Result<Self> {
-        let field = input.call(Field::parse_named)?;
-        return Ok(search_attrs_field(field)?);
-    }
-}
-
-impl Parse for InstanceContents {
-    fn parse(input: ParseStream) -> Result<Self> {
-        let content;
-        Ok(InstanceContents {
-            brace_token: braced!(content in input),
-            named: content.parse_terminated(InstanceContent::parse, Token![,])?,
-        })
-    }
-}
-
-pub(crate) fn data_struct(
-    input: ParseStream,
-) -> Result<(Option<WhereClause>, InstanceContents, Option<Token![;]>)> {
-    let mut lookahead = input.lookahead1();
-    let mut where_clause = None;
-    if lookahead.peek(Token![where]) {
-        where_clause = Some(input.parse()?);
-        lookahead = input.lookahead1();
-    }
-
-    if lookahead.peek(token::Brace) {
-        let fields = input.parse()?;
-        Ok((where_clause, fields, None))
-    } else {
-        Err(lookahead.error())
-    }
-}
 
 #[derive(Debug, Clone)]
 pub(crate) enum AttrArgValue {
     Expr(syn::Expr),
     Func(syn::Signature),
 }
-
+#[derive(Debug, Clone)]
+pub(crate) enum AttrArgValueRecursive {
+    Expr(syn::Expr),
+    Func(syn::Signature),
+    Recursive(Ident, syn::token::Paren, AttrArgumentsRecursive),
+}
 #[derive(Debug, Clone)]
 pub(crate) struct AttrNamedArg {
     pub name: Ident,
@@ -485,22 +24,53 @@ pub(crate) struct AttrNamedArg {
     pub value: AttrArgValue,
 }
 #[derive(Debug, Clone)]
+pub(crate) struct AttrNamedArgRecursive {
+    pub name: Ident,
+    pub assign_token: Token![=],
+    pub value: AttrArgValueRecursive,
+}
+#[derive(Debug, Clone)]
 pub(crate) enum AttrArg {
     Named(AttrNamedArg),
     Unnamed(AttrArgValue),
+}
+#[derive(Debug, Clone)]
+pub(crate) enum AttrArgRecursive {
+    Named(AttrNamedArgRecursive),
+    Unnamed(AttrArgValueRecursive),
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct AttrArguments {
     pub args: Punctuated<AttrArg, Token![,]>,
 }
+#[derive(Debug, Clone)]
+pub(crate) struct AttrArgumentsRecursive {
+    pub args: Punctuated<AttrArgRecursive, Token![,]>,
+}
 
 impl Parse for AttrArgValue {
     fn parse(input: ParseStream) -> Result<Self> {
         if input.peek(syn::Token![fn]) {
+            println!("parse function signature");
             Ok(AttrArgValue::Func(input.parse()?))
         } else {
             Ok(AttrArgValue::Expr(input.parse()?))
+        }
+    }
+}
+impl Parse for AttrArgValueRecursive {
+    fn parse(input: ParseStream) -> Result<Self> {
+        if input.peek(syn::Token![fn]) {
+            Ok(AttrArgValueRecursive::Func(input.parse()?))
+        } else if input.peek(syn::Ident) && input.peek2(syn::token::Paren) {
+            let ident = input.parse()?;
+            let content;
+            let paren = syn::parenthesized!(content in input);
+            let args = content.parse()?;
+            Ok(AttrArgValueRecursive::Recursive(ident, paren, args))
+        } else {
+            Ok(AttrArgValueRecursive::Expr(input.parse()?))
         }
     }
 }
@@ -528,6 +98,29 @@ impl Parse for AttrArg {
     }
 }
 
+impl Parse for AttrNamedArgRecursive {
+    fn parse(input: ParseStream) -> Result<Self> {
+        let name = input.parse()?;
+        let assign_token = input.parse()?;
+        let value = input.parse()?;
+        Ok(AttrNamedArgRecursive {
+            name,
+            assign_token,
+            value,
+        })
+    }
+}
+
+impl Parse for AttrArgRecursive {
+    fn parse(input: ParseStream) -> Result<Self> {
+        if input.peek2(Token![=]) {
+            Ok(AttrArgRecursive::Named(input.parse()?))
+        } else {
+            Ok(AttrArgRecursive::Unnamed(input.parse()?))
+        }
+    }
+}
+
 impl Parse for AttrArguments {
     fn parse(input: ParseStream) -> Result<Self> {
         if input.is_empty() {
@@ -541,6 +134,19 @@ impl Parse for AttrArguments {
     }
 }
 
+impl Parse for AttrArgumentsRecursive {
+    fn parse(input: ParseStream) -> Result<Self> {
+        if input.is_empty() {
+            return Ok(AttrArgumentsRecursive {
+                args: Punctuated::new(),
+            });
+        }
+        Ok(AttrArgumentsRecursive {
+            args: input.parse_terminated(AttrArgRecursive::parse, Token![,])?,
+        })
+    }
+}
+
 impl ToTokens for AttrArgValue {
     fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
         match self {
@@ -549,11 +155,24 @@ impl ToTokens for AttrArgValue {
         }
     }
 }
+impl ToTokens for AttrArgValueRecursive {
+    fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
+        match self {
+            AttrArgValueRecursive::Expr(expr) => expr.to_tokens(tokens),
+            AttrArgValueRecursive::Func(sig) => sig.to_tokens(tokens),
+            AttrArgValueRecursive::Recursive(ident, paren, args) => {
+                ident.to_tokens(tokens);
+                paren.surround(tokens, |tokens| args.to_tokens(tokens));
+            }
+        }
+    }
+}
 
 impl TryInto<syn::Expr> for AttrArgValue {
     type Error = syn::Error;
 
     fn try_into(self) -> Result<syn::Expr> {
+        println!("try into expr");
         match self {
             AttrArgValue::Expr(expr) => Ok(expr),
             x => Err(syn::Error::new(x.span(), "expected expression")),
@@ -605,6 +224,112 @@ impl TryInto<syn::Ident> for AttrArgValue {
     }
 }
 
+impl TryInto<syn::Expr> for AttrArgValueRecursive {
+    type Error = syn::Error;
+
+    fn try_into(self) -> Result<syn::Expr> {
+        match self {
+            AttrArgValueRecursive::Expr(expr) => Ok(expr),
+            x => Err(syn::Error::new(x.span(), "expected expression")),
+        }
+    }
+}
+
+impl TryInto<syn::Signature> for AttrArgValueRecursive {
+    type Error = syn::Error;
+
+    fn try_into(self) -> Result<syn::Signature> {
+        match self {
+            AttrArgValueRecursive::Func(sig) => Ok(sig),
+            x => Err(syn::Error::new(x.span(), "expected function")),
+        }
+    }
+}
+
+impl TryInto<syn::Path> for AttrArgValueRecursive {
+    type Error = syn::Error;
+
+    fn try_into(self) -> Result<syn::Path> {
+        let span = self.span();
+        if let Self::Expr(syn::Expr::Path(p)) = self {
+            Ok(p.path)
+        } else {
+            Err(syn::Error::new(span, "expected path"))
+        }
+    }
+}
+
+impl TryInto<syn::Ident> for AttrArgValueRecursive {
+    type Error = syn::Error;
+
+    fn try_into(self) -> Result<syn::Ident> {
+        let span = self.span();
+        if let Self::Expr(syn::Expr::Path(p)) = self {
+            if p.path.segments.len() == 1 {
+                Ok(p.path.segments[0].ident.clone())
+            } else {
+                Err(syn::Error::new(
+                    p.path.span(),
+                    "expected identifier, got path",
+                ))
+            }
+        } else {
+            Err(syn::Error::new(span, "expected identifier"))
+        }
+    }
+}
+
+impl TryInto<String> for AttrArgValue {
+    type Error = syn::Error;
+
+    fn try_into(self) -> Result<String> {
+        let span = self.span();
+        if let Self::Expr(syn::Expr::Path(p)) = self {
+            if p.path.segments.len() == 1 {
+                Ok(p.path.segments[0].ident.to_string())
+            } else {
+                Err(syn::Error::new(
+                    p.path.span(),
+                    "expected identifier, got path",
+                ))
+            }
+        } else if let Self::Expr(syn::Expr::Lit(syn::ExprLit {
+            lit: syn::Lit::Str(lit_str),
+            ..
+        })) = self
+        {
+            Ok(lit_str.value())
+        } else {
+            Err(syn::Error::new(span, "expected identifier"))
+        }
+    }
+}
+impl TryInto<String> for AttrArgValueRecursive {
+    type Error = syn::Error;
+
+    fn try_into(self) -> Result<String> {
+        let span = self.span();
+        if let Self::Expr(syn::Expr::Path(p)) = self {
+            if p.path.segments.len() == 1 {
+                Ok(p.path.segments[0].ident.to_string())
+            } else {
+                Err(syn::Error::new(
+                    p.path.span(),
+                    "expected identifier, got path",
+                ))
+            }
+        } else if let Self::Expr(syn::Expr::Lit(syn::ExprLit {
+            lit: syn::Lit::Str(lit_str),
+            ..
+        })) = self
+        {
+            Ok(lit_str.value())
+        } else {
+            Err(syn::Error::new(span, "expected identifier"))
+        }
+    }
+}
+
 impl AttrArguments {
     pub fn get_named_arg(&self, name: &str) -> Option<&AttrNamedArg> {
         self.args.iter().find_map(|arg| match arg {
@@ -615,6 +340,12 @@ impl AttrArguments {
                     None
                 }
             }
+            _ => None,
+        })
+    }
+    pub fn get_named_args(&self) -> impl Iterator<Item = &AttrNamedArg> {
+        self.args.iter().filter_map(|arg| match arg {
+            AttrArg::Named(named) => Some(named),
             _ => None,
         })
     }
@@ -635,5 +366,111 @@ impl AttrArguments {
                 _ => None,
             })
             .count()
+    }
+    pub fn has_unnamed_arg(&self, name: &str) -> bool {
+        self.args.iter().any(|arg| match arg {
+            AttrArg::Unnamed(AttrArgValue::Expr(n)) => {
+                if let syn::Expr::Path(p) = n {
+                    p.path.is_ident(name)
+                } else if let syn::Expr::Lit(syn::ExprLit {
+                    lit: syn::Lit::Str(lit_str),
+                    ..
+                }) = n
+                {
+                    lit_str.value() == name
+                } else {
+                    false
+                }
+            }
+            _ => false,
+        })
+    }
+    pub fn get_arg(&self, idx: usize) -> Option<&AttrArg> {
+        self.args.iter().nth(idx)
+    }
+}
+
+impl ToTokens for AttrNamedArg {
+    fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
+        self.name.to_tokens(tokens);
+        self.assign_token.to_tokens(tokens);
+        self.value.to_tokens(tokens);
+    }
+}
+
+impl ToTokens for AttrArg {
+    fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
+        match self {
+            AttrArg::Named(named) => named.to_tokens(tokens),
+            AttrArg::Unnamed(value) => value.to_tokens(tokens),
+        }
+    }
+}
+
+impl ToTokens for AttrArguments {
+    fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
+        self.args.to_tokens(tokens);
+    }
+}
+
+impl AttrArgumentsRecursive {
+    pub fn get_named_arg(&self, name: &str) -> Option<&AttrNamedArgRecursive> {
+        self.args.iter().find_map(|arg| match arg {
+            AttrArgRecursive::Named(named) => {
+                if named.name == name {
+                    Some(named)
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        })
+    }
+    pub fn get_named_args(&self) -> impl Iterator<Item = &AttrNamedArgRecursive> {
+        self.args.iter().filter_map(|arg| match arg {
+            AttrArgRecursive::Named(named) => Some(named),
+            _ => None,
+        })
+    }
+    pub fn get_unnamed_arg(&self, idx: usize) -> Option<&AttrArgValueRecursive> {
+        self.args
+            .iter()
+            .filter_map(|x| match x {
+                AttrArgRecursive::Unnamed(v) => Some(v),
+                _ => None,
+            })
+            .nth(idx)
+    }
+    pub fn get_unnamed_arg_count(&self) -> usize {
+        self.args
+            .iter()
+            .filter_map(|x| match x {
+                AttrArgRecursive::Unnamed(_) => Some(()),
+                _ => None,
+            })
+            .count()
+    }
+}
+
+impl ToTokens for AttrNamedArgRecursive {
+    fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
+        self.name.to_tokens(tokens);
+        self.assign_token.to_tokens(tokens);
+        self.value.to_tokens(tokens);
+    }
+}
+
+impl ToTokens for AttrArgRecursive {
+    fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
+        match self {
+            AttrArgRecursive::Named(named) => named.to_tokens(tokens),
+            AttrArgRecursive::Unnamed(value) => value.to_tokens(tokens),
+        }
+    }
+}
+
+impl ToTokens for AttrArgumentsRecursive {
+    fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
+        self.args.to_tokens(tokens);
     }
 }

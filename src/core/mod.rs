@@ -8,6 +8,7 @@ mod instance_repl_table;
 mod instance_tag_collection;
 pub mod lua_macros;
 mod object;
+mod once;
 mod pointers;
 mod rc;
 mod rw_lock;
@@ -22,12 +23,18 @@ pub use fastflags::*;
 pub use inheritance::*;
 pub(crate) use instance::InstanceCreationSignalList;
 pub use instance::{
-    DynInstance, IInstance, IInstanceComponent, InstanceComponent, InstanceCreationMetadata,
-    ManagedInstance, WeakManagedInstance,
+    DynInstance, IInstance, IInstanceComponent, InstanceComponent, ManagedInstance,
+    WeakManagedInstance,
 };
 pub(self) use instance_repl_table::InstanceReplicationTable;
 pub(self) use instance_tag_collection::InstanceTagCollectionTable;
-pub use object::IObject;
+pub use object::{
+    DynObject, IObject, IObjectComponent, InstanceClass, InstanceClassInfo, InstanceMask,
+    ObjectClass, ObjectClassInfo, ObjectCreationMetadata, ObjectMask, ObjectPropertyInfo,
+    PartialInstanceClass, PartialInstanceClassInfo, PartialObjectClass, PartialObjectClassInfo,
+    WeakManagedObject,
+};
+pub use once::Once;
 pub(self) use pointers::*;
 pub use rc::*;
 pub use rw_lock::*;

@@ -7,10 +7,10 @@ use crate::core::lua_macros::{lua_getter, lua_setter};
 use crate::core::ParallelDispatch::Synchronized;
 use crate::core::{
     borrowck_ignore, borrowck_ignore_mut, get_current_identity, get_state,
-    get_task_scheduler_from_lua, inheritance_cast_to, DynInstance, FastFlag, IInstance,
-    IInstanceComponent, IObject, InheritanceBase, InheritanceTableBuilder, InstanceComponent,
-    InstanceCreationMetadata, Irc, LuauState, ManagedInstance, RwLock, RwLockReadGuard,
-    RwLockWriteGuard, SecurityContext, Trc, WeakManagedInstance,
+    get_task_scheduler_from_lua, inheritance_cast_to, DynInstance, DynObject, FastFlag, IInstance,
+    IInstanceComponent, IObject, IObjectComponent, InheritanceBase, InheritanceTableBuilder,
+    InstanceComponent, Irc, LuauState, ManagedInstance, ObjectCreationMetadata, RwLock,
+    RwLockReadGuard, RwLockWriteGuard, SecurityContext, Trc, WeakManagedObject,
 };
 use crate::userdata::enums::RunContext;
 use crate::userdata::{ManagedRBXScriptSignal, RBXScriptConnection};
@@ -29,7 +29,7 @@ pub struct BaseScriptComponent {
     change_scheduled: Option<LuaThread>,
     run_context: RunContext,
     actor: ActorLuauState,
-    self_instance: WeakManagedInstance,
+    self_object: WeakManagedObject,
     source: String,
     has_set_up_destroying: bool,
     pub(crate) connections: Vec<RBXScriptConnection>,
@@ -101,7 +101,12 @@ impl BaseScriptComponent {
         if self.change_scheduled.is_some() {
             return Ok(());
         }
-        let instance = self.self_instance.upgrade().unwrap();
+        let instance = self
+            .self_object
+            .upgrade()
+            .unwrap()
+            .cast_from_unsized::<DynInstance>()
+            .unwrap();
         self.actor = instance
             .get_actor()?
             .map(|x| ActorLuauState::Actor(x.cast_from_unsized().unwrap()))
@@ -132,13 +137,13 @@ impl BaseScriptComponent {
 
             borrowck_ignore_mut(&mut *state)
                 .get_task_scheduler_mut()
-                .cancel_script(lua, &self.self_instance)?;
+                .cancel_script(lua, &self.self_object)?;
         }
         if let Some(iden) = get_current_identity(lua) {
             if iden
                 .script
                 .as_ref()
-                .map(|x| self.self_instance == *x)
+                .map(|x| self.self_object == *x)
                 .unwrap_or(false)
             {
                 get_task_scheduler_from_lua(lua).cancel(lua, &lua.current_thread())?;
@@ -165,7 +170,12 @@ impl BaseScriptComponent {
         } else {
             if !self.has_set_up_destroying {
                 self.has_set_up_destroying = true;
-                let instance = self.self_instance.upgrade().unwrap();
+                let instance = self
+                    .self_object
+                    .upgrade()
+                    .unwrap()
+                    .cast_from_unsized::<DynInstance>()
+                    .unwrap();
                 let instance_ref = instance.clone();
                 instance
                     .get_instance_component()
@@ -228,10 +238,10 @@ pub trait IBaseScript: IInstance {
     fn implicit_run_context(&self) -> RunContext;
 }
 
-impl IInstanceComponent for BaseScriptComponent {
+impl IObjectComponent for BaseScriptComponent {
     fn lua_get(
         self: &mut RwLockReadGuard<'_, Self>,
-        _: &DynInstance,
+        _: &DynObject,
         lua: &Lua,
         key: &String,
     ) -> Option<LuaResult<LuaValue>> {
@@ -246,7 +256,7 @@ impl IInstanceComponent for BaseScriptComponent {
 
     fn lua_set(
         self: &mut RwLockWriteGuard<'_, Self>,
-        ptr: &DynInstance,
+        ptr: &DynObject,
         lua: &Lua,
         key: &String,
         value: &LuaValue,
@@ -268,7 +278,11 @@ impl IInstanceComponent for BaseScriptComponent {
                     return Some(Err(err));
                 }
                 let d = InstanceComponent::emit_property_changed(
-                    &ptr.get_instance_component(),
+                    unsafe {
+                        &inheritance_cast_to!(ptr, DynInstance)
+                            .unwrap_unchecked()
+                            .get_instance_component()
+                    },
                     lua,
                     "Disabled",
                     &LuaValue::Boolean(self.disabled),
@@ -277,7 +291,11 @@ impl IInstanceComponent for BaseScriptComponent {
                     return Some(Err(err));
                 }
                 let d = InstanceComponent::emit_property_changed(
-                    &ptr.get_instance_component(),
+                    unsafe {
+                        &inheritance_cast_to!(ptr, DynInstance)
+                            .unwrap_unchecked()
+                            .get_instance_component()
+                    },
                     lua,
                     "Enabled",
                     &LuaValue::Boolean(!self.disabled),
@@ -303,7 +321,11 @@ impl IInstanceComponent for BaseScriptComponent {
                     return Some(Err(err));
                 }
                 let d = InstanceComponent::emit_property_changed(
-                    &ptr.get_instance_component(),
+                    unsafe {
+                        &inheritance_cast_to!(ptr, DynInstance)
+                            .unwrap_unchecked()
+                            .get_instance_component()
+                    },
                     lua,
                     "Disabled",
                     &LuaValue::Boolean(self.disabled),
@@ -312,7 +334,11 @@ impl IInstanceComponent for BaseScriptComponent {
                     return Some(Err(err));
                 }
                 let d = InstanceComponent::emit_property_changed(
-                    &ptr.get_instance_component(),
+                    unsafe {
+                        &inheritance_cast_to!(ptr, DynInstance)
+                            .unwrap_unchecked()
+                            .get_instance_component()
+                    },
                     lua,
                     "Enabled",
                     &LuaValue::Boolean(!self.disabled),
@@ -333,7 +359,11 @@ impl IInstanceComponent for BaseScriptComponent {
                     return Some(Err(err));
                 }
                 let d = InstanceComponent::emit_property_changed(
-                    &ptr.get_instance_component(),
+                    unsafe {
+                        &inheritance_cast_to!(ptr, DynInstance)
+                            .unwrap_unchecked()
+                            .get_instance_component()
+                    },
                     lua,
                     "RunContext",
                     &v.unwrap(),
@@ -365,25 +395,44 @@ impl IInstanceComponent for BaseScriptComponent {
         }
     }
 
-    // NOTE: The programmer of the instance needs to modify cloning here.
+    fn new(metadata: &ObjectCreationMetadata) -> LuaResult<Self> {
+        Ok(BaseScriptComponent {
+            disabled: true,
+            change_scheduled: None,
+            run_context: RunContext::Legacy,
+            actor: ActorLuauState::None,
+            self_object: metadata.get_ptr(),
+            source: String::new(),
+            connections: Vec::new(),
+            has_set_up_destroying: false,
+        })
+    }
+}
+
+impl IInstanceComponent for BaseScriptComponent {
     fn clone(
         self: &RwLockReadGuard<'_, Self>,
         lua: &Lua,
-        metadata: &InstanceCreationMetadata,
+        metadata: &ObjectCreationMetadata,
     ) -> LuaResult<Self> {
         let c = BaseScriptComponent {
             disabled: self.disabled,
             change_scheduled: None,
             run_context: self.run_context.clone(),
             actor: ActorLuauState::None,
-            self_instance: metadata.get_ptr(),
+            self_object: metadata.get_ptr(),
             source: self.source.clone(),
             connections: Vec::new(),
             has_set_up_destroying: false,
         };
         get_task_scheduler_from_lua(lua).defer_native(
             lua,
-            metadata.get_ptr().upgrade().unwrap(),
+            metadata
+                .get_ptr()
+                .upgrade()
+                .unwrap()
+                .cast_from_unsized::<DynInstance>()
+                .unwrap(),
             Synchronized,
             move |lua, script: ManagedInstance| {
                 let script = script.cast_from_unsized::<dyn IBaseScript>().unwrap();
@@ -394,19 +443,6 @@ impl IInstanceComponent for BaseScriptComponent {
             },
         )?;
         Ok(c)
-    }
-
-    fn new(metadata: &InstanceCreationMetadata) -> Self {
-        BaseScriptComponent {
-            disabled: true,
-            change_scheduled: None,
-            run_context: RunContext::Legacy,
-            actor: ActorLuauState::None,
-            self_instance: metadata.get_ptr(),
-            source: String::new(),
-            connections: Vec::new(),
-            has_set_up_destroying: false,
-        }
     }
 }
 
@@ -485,6 +521,14 @@ impl IObject for Script {
             .unwrap_or_else(|| self.instance.read().unwrap().lua_get(lua, &name))
     }
 
+    fn lua_set(&self, lua: &Lua, name: String, val: LuaValue) -> LuaResult<()> {
+        self.base_script
+            .write()
+            .unwrap()
+            .lua_set(self, lua, &name, &val)
+            .unwrap_or_else(|| self.instance.write().unwrap().lua_set(lua, &name, val))
+    }
+
     fn get_class_name(&self) -> &'static str {
         "Script"
     }
@@ -510,25 +554,17 @@ impl IObject for Script {
 }
 
 impl IInstance for Script {
-    fn get_instance_component(&self) -> RwLockReadGuard<InstanceComponent> {
+    fn get_instance_component(&'_ self) -> RwLockReadGuard<'_, InstanceComponent> {
         self.instance.read().unwrap()
     }
 
-    fn get_instance_component_mut(&self) -> RwLockWriteGuard<InstanceComponent> {
+    fn get_instance_component_mut(&'_ self) -> RwLockWriteGuard<'_, InstanceComponent> {
         self.instance.write().unwrap()
-    }
-
-    fn lua_set(&self, lua: &Lua, name: String, val: LuaValue) -> LuaResult<()> {
-        self.base_script
-            .write()
-            .unwrap()
-            .lua_set(self, lua, &name, &val)
-            .unwrap_or_else(|| self.instance.write().unwrap().lua_set(lua, &name, val))
     }
 
     fn clone_instance(&self, lua: &Lua) -> LuaResult<ManagedInstance> {
         Ok(Irc::new_cyclic_fallable::<_, LuaError>(|x| {
-            let metadata = InstanceCreationMetadata::new("Script", x.cast_to_instance());
+            let metadata = ObjectCreationMetadata::new("Script", x.cast_to_object());
             let script = Script {
                 instance: RwLock::new_with_flag_auto(
                     self.get_instance_component().clone(lua, &metadata)?,
@@ -566,18 +602,19 @@ impl IBaseScript for Script {
 }
 
 impl Script {
-    pub fn new() -> ManagedInstance {
-        Irc::new_cyclic(|x| {
-            let metadata = InstanceCreationMetadata::new("Script", x.cast_to_instance());
+    pub fn new() -> LuaResult<ManagedInstance> {
+        Ok(Irc::new_cyclic_fallable(|x| {
+            let metadata = ObjectCreationMetadata::new("Script", x.cast_to_object());
             let mut s = Script {
-                instance: RwLock::new_with_flag_auto(InstanceComponent::new(&metadata)),
-                base_script: RwLock::new_with_flag_auto(BaseScriptComponent::new(&metadata)),
+                instance: RwLock::new_with_flag_auto(InstanceComponent::new(&metadata)?),
+                base_script: RwLock::new_with_flag_auto(BaseScriptComponent::new(&metadata)?),
             };
             DynInstance::submit_metadata(&mut s, metadata);
-            s
+            Ok::<_, LuaError>(s)
         })
-        .cast_from_sized()
         .unwrap()
+        .cast_from_sized()
+        .unwrap())
     }
 }
 #[derive(Debug)]
@@ -602,6 +639,14 @@ impl IObject for LocalScript {
             .unwrap()
             .lua_get(self, lua, &name)
             .unwrap_or_else(|| self.instance.read().unwrap().lua_get(lua, &name))
+    }
+
+    fn lua_set(&self, lua: &Lua, name: String, val: LuaValue) -> LuaResult<()> {
+        self.base_script
+            .write()
+            .unwrap()
+            .lua_set(self, lua, &name, &val)
+            .unwrap_or_else(|| self.instance.write().unwrap().lua_set(lua, &name, val))
     }
 
     fn get_class_name(&self) -> &'static str {
@@ -630,25 +675,17 @@ impl IObject for LocalScript {
 }
 
 impl IInstance for LocalScript {
-    fn get_instance_component(&self) -> RwLockReadGuard<InstanceComponent> {
+    fn get_instance_component(&'_ self) -> RwLockReadGuard<'_, InstanceComponent> {
         self.instance.read().unwrap()
     }
 
-    fn get_instance_component_mut(&self) -> RwLockWriteGuard<InstanceComponent> {
+    fn get_instance_component_mut(&'_ self) -> RwLockWriteGuard<'_, InstanceComponent> {
         self.instance.write().unwrap()
-    }
-
-    fn lua_set(&self, lua: &Lua, name: String, val: LuaValue) -> LuaResult<()> {
-        self.base_script
-            .write()
-            .unwrap()
-            .lua_set(self, lua, &name, &val)
-            .unwrap_or_else(|| self.instance.write().unwrap().lua_set(lua, &name, val))
     }
 
     fn clone_instance(&self, lua: &Lua) -> LuaResult<ManagedInstance> {
         Ok(Irc::new_cyclic_fallable::<_, LuaError>(|x| {
-            let metadata = InstanceCreationMetadata::new("LocalScript", x.cast_to_instance());
+            let metadata = ObjectCreationMetadata::new("LocalScript", x.cast_to_object());
             let script = LocalScript {
                 instance: RwLock::new_with_flag_auto(
                     self.get_instance_component().clone(lua, &metadata)?,
@@ -686,16 +723,19 @@ impl IBaseScript for LocalScript {
 }
 
 impl LocalScript {
-    pub fn new() -> ManagedInstance {
-        Irc::new_cyclic(|x| {
-            let metadata = InstanceCreationMetadata::new("LocalScript", x.cast_to_instance());
-            LocalScript {
-                instance: RwLock::new_with_flag_auto(InstanceComponent::new(&metadata)),
-                base_script: RwLock::new_with_flag_auto(BaseScriptComponent::new(&metadata)),
-            }
+    pub fn new() -> LuaResult<ManagedInstance> {
+        Ok(Irc::new_cyclic_fallable(|x| {
+            let metadata = ObjectCreationMetadata::new("LocalScript", x.cast_to_object());
+            let mut s = LocalScript {
+                instance: RwLock::new_with_flag_auto(InstanceComponent::new(&metadata)?),
+                base_script: RwLock::new_with_flag_auto(BaseScriptComponent::new(&metadata)?),
+            };
+            DynInstance::submit_metadata(&mut s, metadata);
+            Ok::<_, LuaError>(s)
         })
-        .cast_from_sized()
         .unwrap()
+        .cast_from_sized()
+        .unwrap())
     }
 }
 
@@ -703,13 +743,13 @@ impl LocalScript {
 pub struct ModuleScriptComponent {
     source: String,
     already_imported: HashMap<Option<WeakManagedActor>, LuaValue>,
-    _self_ptr: WeakManagedInstance,
+    _self_ptr: WeakManagedObject,
 }
 
-impl IInstanceComponent for ModuleScriptComponent {
+impl IObjectComponent for ModuleScriptComponent {
     fn lua_get(
         self: &mut RwLockReadGuard<'_, Self>,
-        _ptr: &DynInstance,
+        _ptr: &DynObject,
         lua: &Lua,
         key: &String,
     ) -> Option<LuaResult<LuaValue>> {
@@ -721,7 +761,7 @@ impl IInstanceComponent for ModuleScriptComponent {
 
     fn lua_set(
         self: &mut RwLockWriteGuard<'_, Self>,
-        ptr: &DynInstance,
+        ptr: &DynObject,
         lua: &Lua,
         key: &String,
         value: &LuaValue,
@@ -746,7 +786,9 @@ impl IInstanceComponent for ModuleScriptComponent {
                 self.source = lua_setter!(opt_clone, lua, value);
                 self.already_imported.clear();
                 Some(InstanceComponent::emit_property_changed(
-                    &ptr.get_instance_component(),
+                    &inheritance_cast_to!(ptr, DynInstance)
+                        .unwrap()
+                        .get_instance_component(),
                     lua,
                     "Source",
                     &lua_getter!(clone, lua, self.source).unwrap(),
@@ -756,24 +798,26 @@ impl IInstanceComponent for ModuleScriptComponent {
         }
     }
 
+    fn new(metadata: &ObjectCreationMetadata) -> LuaResult<Self> {
+        Ok(ModuleScriptComponent {
+            source: String::new(),
+            already_imported: HashMap::new(),
+            _self_ptr: metadata.get_ptr(),
+        })
+    }
+}
+
+impl IInstanceComponent for ModuleScriptComponent {
     fn clone(
         self: &RwLockReadGuard<'_, Self>,
         _lua: &Lua,
-        metadata: &InstanceCreationMetadata,
+        metadata: &ObjectCreationMetadata,
     ) -> LuaResult<Self> {
         Ok(ModuleScriptComponent {
             source: self.source.clone(),
             already_imported: HashMap::new(),
             _self_ptr: metadata.get_ptr(),
         })
-    }
-
-    fn new(metadata: &InstanceCreationMetadata) -> Self {
-        ModuleScriptComponent {
-            source: String::new(),
-            already_imported: HashMap::new(),
-            _self_ptr: metadata.get_ptr(),
-        }
     }
 }
 pub trait IModuleScript: IInstance {
@@ -806,6 +850,14 @@ impl IObject for ModuleScript {
             .unwrap_or_else(|| self.instance.read().unwrap().lua_get(lua, &name))
     }
 
+    fn lua_set(&self, lua: &Lua, name: String, val: LuaValue) -> LuaResult<()> {
+        self.module_script
+            .write()
+            .unwrap()
+            .lua_set(self, lua, &name, &val)
+            .unwrap_or_else(|| self.instance.write().unwrap().lua_set(lua, &name, val))
+    }
+
     fn get_class_name(&self) -> &'static str {
         "ModuleScript"
     }
@@ -831,25 +883,17 @@ impl IObject for ModuleScript {
 }
 
 impl IInstance for ModuleScript {
-    fn get_instance_component(&self) -> RwLockReadGuard<InstanceComponent> {
+    fn get_instance_component(&'_ self) -> RwLockReadGuard<'_, InstanceComponent> {
         self.instance.read().unwrap()
     }
 
-    fn get_instance_component_mut(&self) -> RwLockWriteGuard<InstanceComponent> {
+    fn get_instance_component_mut(&'_ self) -> RwLockWriteGuard<'_, InstanceComponent> {
         self.instance.write().unwrap()
-    }
-
-    fn lua_set(&self, lua: &Lua, name: String, val: LuaValue) -> LuaResult<()> {
-        self.module_script
-            .write()
-            .unwrap()
-            .lua_set(self, lua, &name, &val)
-            .unwrap_or_else(|| self.instance.write().unwrap().lua_set(lua, &name, val))
     }
 
     fn clone_instance(&self, lua: &Lua) -> LuaResult<ManagedInstance> {
         Ok(Irc::new_cyclic_fallable::<_, LuaError>(|x| {
-            let metadata = InstanceCreationMetadata::new("ModuleScript", x.cast_to_instance());
+            let metadata = ObjectCreationMetadata::new("ModuleScript", x.cast_to_object());
             let script = ModuleScript {
                 instance: RwLock::new_with_flag_auto(
                     self.get_instance_component().clone(lua, &metadata)?,
@@ -898,7 +942,12 @@ impl dyn IModuleScript {
             &component.source,
             lua,
             get_state(lua),
-            &component._self_ptr.upgrade().unwrap(),
+            &component
+                ._self_ptr
+                .upgrade()
+                .unwrap()
+                .cast_from_unsized::<DynInstance>()
+                .unwrap(),
         )?;
         let thread = lua.create_thread(func)?;
         let result = thread.resume::<LuaMultiValue>(());
@@ -910,6 +959,8 @@ impl dyn IModuleScript {
                     component
                         ._self_ptr
                         .upgrade()
+                        .unwrap()
+                        .cast_from_unsized::<DynInstance>()
                         .unwrap()
                         .get_full_name()
                         .unwrap(),
@@ -932,17 +983,18 @@ impl dyn IModuleScript {
 }
 
 impl ModuleScript {
-    pub fn new() -> ManagedInstance {
-        Irc::new_cyclic(|x| {
-            let metadata = InstanceCreationMetadata::new("ModuleScript", x.cast_to_instance());
+    pub fn new() -> LuaResult<ManagedInstance> {
+        Ok(Irc::new_cyclic_fallable(|x| {
+            let metadata = ObjectCreationMetadata::new("ModuleScript", x.cast_to_object());
             let mut s = ModuleScript {
-                instance: RwLock::new_with_flag_auto(InstanceComponent::new(&metadata)),
-                module_script: RwLock::new_with_flag_auto(ModuleScriptComponent::new(&metadata)),
+                instance: RwLock::new_with_flag_auto(InstanceComponent::new(&metadata)?),
+                module_script: RwLock::new_with_flag_auto(ModuleScriptComponent::new(&metadata)?),
             };
             DynInstance::submit_metadata(&mut s, metadata);
-            s
+            Ok::<_, LuaError>(s)
         })
-        .cast_from_sized()
         .unwrap()
+        .cast_from_sized()
+        .unwrap())
     }
 }

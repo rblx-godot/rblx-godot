@@ -1,3 +1,5 @@
+--!native
+
 local script = Instance.new("Script")
 local module_script = Instance.new("ModuleScript")
 script.Parent = game

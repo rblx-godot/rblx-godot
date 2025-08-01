@@ -51,8 +51,8 @@ pub struct InheritanceTableBuilder {
     v: HashMap<TypeId, ((fn(), fn()), (fn(), fn()))>,
 }
 
+#[doc(hidden)]
 impl InheritanceTable {
-    #[doc(hidden)]
     pub fn index<'a, T: 'static + ?Sized>(
         &self,
     ) -> Result<
@@ -74,7 +74,6 @@ impl InheritanceTable {
             }
         }
     }
-    #[doc(hidden)]
     pub fn has<T: 'static + ?Sized>(&self) -> bool {
         let typeid: TypeId = TypeId::of::<T>();
         self.v.contains_key(&typeid)
@@ -82,8 +81,19 @@ impl InheritanceTable {
 }
 
 pub trait InheritanceBase: Any {
-    #[allow(private_interfaces)]
     fn inheritance_table(&self) -> InheritanceTable;
+}
+
+impl dyn InheritanceBase {
+    pub fn cast_to<T: 'static + ?Sized>(&self) -> Result<&T, InheritanceCastError> {
+        inheritance_cast_to!(self, T)
+    }
+    pub fn cast_to_mut<T: 'static + ?Sized>(&mut self) -> Result<&mut T, InheritanceCastError> {
+        inheritance_cast_to_mut!(self, T)
+    }
+    pub fn is_of_type<T: 'static + ?Sized>(&self) -> bool {
+        inheritance_is_of_type!(self, T)
+    }
 }
 
 impl InheritanceTableBuilder {

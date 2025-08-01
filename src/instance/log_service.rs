@@ -4,10 +4,7 @@ use std::fmt::Debug;
 
 use crate::{
     core::{
-        lua_macros::{lua_getter, lua_invalid_argument},
-        DynInstance, IInstance, IInstanceComponent, IObject, InheritanceBase,
-        InheritanceTableBuilder, InstanceComponent, InstanceCreationMetadata, Irc, ManagedInstance,
-        RwLock, RwLockReadGuard, RwLockWriteGuard,
+        lua_macros::{lua_getter, lua_invalid_argument}, DynInstance, DynObject, IInstance, IInstanceComponent, IObject, IObjectComponent, InheritanceBase, InheritanceTableBuilder, InstanceComponent, Irc, ManagedInstance, ObjectCreationMetadata, RwLock, RwLockReadGuard, RwLockWriteGuard
     },
     userdata::{enums::MessageType, ManagedRBXScriptSignal, RBXScriptSignal},
 };
@@ -33,10 +30,10 @@ pub struct LogService {
     log_service: RwLock<LogServiceComponent>,
 }
 
-impl IInstanceComponent for LogServiceComponent {
+impl IObjectComponent for LogServiceComponent {
     fn lua_get(
         self: &mut RwLockReadGuard<'_, Self>,
-        _ptr: &DynInstance,
+        _ptr: &DynObject,
         lua: &Lua,
         key: &String,
     ) -> Option<LuaResult<LuaValue>> {
@@ -69,7 +66,7 @@ impl IInstanceComponent for LogServiceComponent {
 
     fn lua_set(
         self: &mut RwLockWriteGuard<'_, Self>,
-        _ptr: &DynInstance,
+        _ptr: &DynObject,
         _lua: &Lua,
         _key: &String,
         _value: &LuaValue,
@@ -77,22 +74,24 @@ impl IInstanceComponent for LogServiceComponent {
         None
     }
 
+    fn new(metadata: &ObjectCreationMetadata) -> LuaResult<Self> {
+        Ok(LogServiceComponent {
+            logs: Vec::new(),
+            hooks: Vec::new(),
+            message_out: RBXScriptSignal::new(metadata),
+        })
+    }
+}
+
+impl IInstanceComponent for LogServiceComponent {
     fn clone(
         self: &RwLockReadGuard<'_, Self>,
         _: &Lua,
-        _: &InstanceCreationMetadata,
+        _: &ObjectCreationMetadata,
     ) -> LuaResult<Self> {
         Err(LuaError::RuntimeError(
             "Cannot clone LogServiceComponent".into(),
         ))
-    }
-
-    fn new(metadata: &InstanceCreationMetadata) -> Self {
-        LogServiceComponent {
-            logs: Vec::new(),
-            hooks: Vec::new(),
-            message_out: RBXScriptSignal::new(metadata),
-        }
     }
 }
 
@@ -113,6 +112,14 @@ impl IObject for LogService {
             .unwrap()
             .lua_get(self, lua, &name)
             .unwrap_or_else(|| self.instance.read().unwrap().lua_get(lua, &name))
+    }
+
+    fn lua_set(&self, lua: &Lua, name: String, val: LuaValue) -> LuaResult<()> {
+        self.log_service
+            .write()
+            .unwrap()
+            .lua_set(self, lua, &name, &val)
+            .unwrap_or_else(|| self.instance.write().unwrap().lua_set(lua, &name, val))
     }
 
     fn get_class_name(&self) -> &'static str {
@@ -140,20 +147,12 @@ impl IObject for LogService {
 }
 
 impl IInstance for LogService {
-    fn get_instance_component(&self) -> RwLockReadGuard<InstanceComponent> {
+    fn get_instance_component(&'_ self) -> RwLockReadGuard<'_, InstanceComponent> {
         self.instance.read().unwrap()
     }
 
-    fn get_instance_component_mut(&self) -> RwLockWriteGuard<InstanceComponent> {
+    fn get_instance_component_mut(&'_ self) -> RwLockWriteGuard<'_, InstanceComponent> {
         self.instance.write().unwrap()
-    }
-
-    fn lua_set(&self, lua: &Lua, name: String, val: LuaValue) -> LuaResult<()> {
-        self.log_service
-            .write()
-            .unwrap()
-            .lua_set(self, lua, &name, &val)
-            .unwrap_or_else(|| self.instance.write().unwrap().lua_set(lua, &name, val))
     }
 
     fn clone_instance(&self, _lua: &Lua) -> LuaResult<ManagedInstance> {
@@ -162,16 +161,16 @@ impl IInstance for LogService {
 }
 
 impl LogService {
-    pub fn new() -> Irc<LogService> {
-        let inst = Irc::new_cyclic(|x| {
-            let mut metadata = InstanceCreationMetadata::new("LogService", x.cast_to_instance());
+    pub fn new() -> LuaResult<Irc<LogService>> {
+        let inst = Irc::new_cyclic_fallable(|x| {
+            let mut metadata = ObjectCreationMetadata::new("LogService", x.cast_to_object());
             let mut l = LogService {
-                instance: RwLock::new_with_flag_auto(InstanceComponent::new(&mut metadata)),
-                log_service: RwLock::new_with_flag_auto(LogServiceComponent::new(&mut metadata)),
+                instance: RwLock::new_with_flag_auto(InstanceComponent::new(&mut metadata)?),
+                log_service: RwLock::new_with_flag_auto(LogServiceComponent::new(&mut metadata)?),
             };
             DynInstance::submit_metadata(&mut l, metadata);
-            l
-        });
+            Ok::<_, LuaError>(l)
+        }).unwrap();
         inst.add_hook(|x| {
             if let Some((msg, msg_type, _timestamp)) = x {
                 match msg_type {
@@ -188,7 +187,7 @@ impl LogService {
                 }
             }
         });
-        inst
+        Ok(inst)
     }
     pub fn clear_logs(&self) {
         let mut write = self.log_service.write().unwrap();

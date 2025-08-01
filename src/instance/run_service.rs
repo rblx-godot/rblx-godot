@@ -2,10 +2,7 @@ use r2g_mlua::prelude::*;
 
 use crate::core::lua_macros::lua_getter;
 use crate::core::{
-    borrowck_ignore_mut, get_state, get_state_with_rwlock, DynInstance, FastFlag, IInstance,
-    IInstanceComponent, IObject, InheritanceBase, InheritanceTable, InheritanceTableBuilder,
-    InstanceComponent, InstanceCreationMetadata, Irc, LuauState, ManagedInstance, RwLock,
-    RwLockReadGuard, RwLockWriteGuard, Trc, TrcWriteLock,
+    borrowck_ignore_mut, get_state, get_state_with_rwlock, DynInstance, FastFlag, IInstance, IObject, IObjectComponent, InheritanceBase, InheritanceTable, InheritanceTableBuilder, InstanceComponent, Irc, LuauState, ManagedInstance, ObjectCreationMetadata, RwLock, RwLockReadGuard, RwLockWriteGuard, Trc
 };
 use crate::userdata::{ManagedRBXScriptSignal, RBXScriptSignal};
 
@@ -98,6 +95,12 @@ impl IObject for RunService {
             _ => self.instance_component.read().unwrap().lua_get(lua, &name),
         }
     }
+    fn lua_set(&self, lua: &Lua, name: String, val: LuaValue) -> LuaResult<()> {
+        self.instance_component
+            .write()
+            .unwrap()
+            .lua_set(lua, &name, val)
+    }
     fn get_changed_signal(&self) -> ManagedRBXScriptSignal {
         self.instance_component.read().unwrap().changed.clone()
     }
@@ -120,23 +123,17 @@ impl IInstance for RunService {
     fn get_instance_component_mut(&self) -> RwLockWriteGuard<'_, InstanceComponent> {
         self.instance_component.write().unwrap()
     }
-    fn lua_set(&self, lua: &Lua, name: String, val: LuaValue) -> LuaResult<()> {
-        self.instance_component
-            .write()
-            .unwrap()
-            .lua_set(lua, &name, val)
-    }
     fn clone_instance(&self, _: &Lua) -> LuaResult<ManagedInstance> {
         Err(LuaError::RuntimeError("Cannot clone RunService.".into()))
     }
 }
 
 impl RunService {
-    pub fn new() -> Irc<RunService> {
-        let inst = Irc::new_cyclic(|x| {
-            let metadata = InstanceCreationMetadata::new("RunService", x.cast_to_instance());
+    pub fn new() -> LuaResult<Irc<RunService>> {
+        let inst = Irc::new_cyclic_fallable(|x| {
+            let metadata = ObjectCreationMetadata::new("RunService", x.cast_to_object());
             let mut r = RunService {
-                instance_component: RwLock::new_with_flag_auto(InstanceComponent::new(&metadata)),
+                instance_component: RwLock::new_with_flag_auto(InstanceComponent::new(&metadata)?),
                 render_steps: RwLock::new_with_flag_auto(Vec::new()),
                 heart_beat: RBXScriptSignal::new(&metadata),
                 post_simulation: RBXScriptSignal::new(&metadata),
@@ -147,10 +144,10 @@ impl RunService {
                 stepped: RBXScriptSignal::new(&metadata),
             };
             DynInstance::submit_metadata(&mut r, metadata);
-            r
-        });
+            Ok::<_, LuaError>(r)
+        }).unwrap();
         DynInstance::set_name(&*inst, "Run Service".into()).unwrap();
-        inst
+        Ok(inst)
     }
 }
 impl RunService {

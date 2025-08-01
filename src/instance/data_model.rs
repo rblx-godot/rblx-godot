@@ -6,7 +6,7 @@ use crate::core::{
     InheritanceBase, InheritanceTable, InheritanceTableBuilder, InstanceComponent, Irc,
     ManagedInstance, ParallelDispatch::Synchronized, RwLock, RwLockReadGuard, RwLockWriteGuard,
 };
-use crate::core::{FastFlags, InstanceCreationMetadata};
+use crate::core::{DynObject, FastFlags, IObjectComponent, ObjectCreationMetadata};
 use crate::userdata::{ManagedRBXScriptSignal, RBXScriptSignal};
 
 use super::{IServiceProvider, LogService, RunService, ServiceProviderComponent, Workspace};
@@ -62,6 +62,20 @@ impl IObject for DataModel {
             .unwrap_or_else(|| self.instance.read().unwrap().lua_get(lua, &name))
     }
 
+    fn lua_set(&self, lua: &Lua, name: String, val: LuaValue) -> LuaResult<()> {
+        self.data_model
+            .write()
+            .unwrap()
+            .lua_set(self, lua, &name, &val)
+            .or_else(|| {
+                self.service_provider
+                    .write()
+                    .unwrap()
+                    .lua_set(self, lua, &name, &val)
+            })
+            .unwrap_or_else(|| self.instance.write().unwrap().lua_set(lua, &name, val))
+    }
+
     fn get_class_name(&self) -> &'static str {
         "DataModel"
     }
@@ -88,26 +102,12 @@ impl IObject for DataModel {
 }
 
 impl IInstance for DataModel {
-    fn get_instance_component(&self) -> RwLockReadGuard<InstanceComponent> {
+    fn get_instance_component(&'_ self) -> RwLockReadGuard<'_, InstanceComponent> {
         self.instance.read().unwrap()
     }
 
-    fn get_instance_component_mut(&self) -> RwLockWriteGuard<InstanceComponent> {
+    fn get_instance_component_mut(&'_ self) -> RwLockWriteGuard<'_, InstanceComponent> {
         self.instance.write().unwrap()
-    }
-
-    fn lua_set(&self, lua: &Lua, name: String, val: LuaValue) -> LuaResult<()> {
-        self.data_model
-            .write()
-            .unwrap()
-            .lua_set(self, lua, &name, &val)
-            .or_else(|| {
-                self.service_provider
-                    .write()
-                    .unwrap()
-                    .lua_set(self, lua, &name, &val)
-            })
-            .unwrap_or_else(|| self.instance.write().unwrap().lua_set(lua, &name, val))
     }
 
     fn clone_instance(&self, _: &Lua) -> LuaResult<ManagedInstance> {
@@ -116,11 +116,11 @@ impl IInstance for DataModel {
 }
 
 impl IServiceProvider for DataModel {
-    fn get_service_provider_component(&self) -> RwLockReadGuard<ServiceProviderComponent> {
+    fn get_service_provider_component(&'_ self) -> RwLockReadGuard<'_, ServiceProviderComponent> {
         self.service_provider.read().unwrap()
     }
 
-    fn get_service_provider_component_mut(&self) -> RwLockWriteGuard<ServiceProviderComponent> {
+    fn get_service_provider_component_mut(&'_ self) -> RwLockWriteGuard<'_, ServiceProviderComponent> {
         self.service_provider.write().unwrap()
     }
 
@@ -136,18 +136,18 @@ impl IServiceProvider for DataModel {
 
 impl DataModel {
     pub fn new(flags: &FastFlags) -> Irc<DataModel> {
-        let game = Irc::new_cyclic(|x| {
-            let metadata = InstanceCreationMetadata::new("DataModel", x.cast_to_instance());
+        let game = Irc::new_cyclic_fallable(|x| {
+            let metadata = ObjectCreationMetadata::new("DataModel", x.cast_to_object());
             let mut i = DataModel {
-                instance: RwLock::new_with_flag_auto(InstanceComponent::new(&metadata)),
+                instance: RwLock::new_with_flag_auto(InstanceComponent::new(&metadata)?),
                 service_provider: RwLock::new_with_flag_auto(ServiceProviderComponent::new(
                     &metadata,
-                )),
-                data_model: RwLock::new_with_flag_auto(DataModelComponent::new(&metadata)),
+                )?),
+                data_model: RwLock::new_with_flag_auto(DataModelComponent::new(&metadata)?),
             };
             DynInstance::submit_metadata(&mut i, metadata);
-            i
-        });
+            Ok::<_, LuaError>(i)
+        }).unwrap();
         DynInstance::set_name(&*game, flags.get_string(FastFlag::GameName)).unwrap();
         DynInstance::lock_parent(&*game);
         game
@@ -161,23 +161,23 @@ impl DataModel {
     }
     pub(crate) fn init_services(&self, lua: &Lua) -> LuaResult<()> {
         //self.add_service(lua, self.get_data_model_component().workspace);
-        let serv = LogService::new();
+        let serv = LogService::new()?;
         self.add_service(lua, serv.clone().cast_from_sized::<DynInstance>().unwrap())?;
         self.data_model.write().unwrap().log_service = Some(serv);
-        let serv = RunService::new();
+        let serv = RunService::new()?;
         self.add_service(lua, serv.clone().cast_from_sized::<DynInstance>().unwrap())?;
         self.data_model.write().unwrap().run_service = Some(serv);
-        let serv = Workspace::new();
+        let serv = Workspace::new()?;
         self.add_service(lua, serv.clone().cast_from_sized::<DynInstance>().unwrap())?;
         self.data_model.write().unwrap().workspace = Some(serv);
         Ok(())
     }
 }
 
-impl IInstanceComponent for DataModelComponent {
+impl IObjectComponent for DataModelComponent {
     fn lua_get(
         self: &mut RwLockReadGuard<'_, Self>,
-        _ptr: &DynInstance,
+        _ptr: &DynObject,
         lua: &Lua,
         key: &String,
     ) -> Option<LuaResult<LuaValue>> {
@@ -247,7 +247,7 @@ impl IInstanceComponent for DataModelComponent {
 
     fn lua_set(
         self: &mut RwLockWriteGuard<'_, Self>,
-        _ptr: &DynInstance,
+        _ptr: &DynObject,
         _lua: &Lua,
         key: &String,
         _value: &LuaValue,
@@ -268,18 +268,8 @@ impl IInstanceComponent for DataModelComponent {
         }
     }
 
-    fn clone(
-        self: &RwLockReadGuard<'_, Self>,
-        _: &Lua,
-        _: &InstanceCreationMetadata,
-    ) -> LuaResult<Self> {
-        Err(LuaError::RuntimeError(
-            "Cannot clone DataModelComponent".into(),
-        ))
-    }
-
-    fn new(metadata: &InstanceCreationMetadata) -> Self {
-        Self {
+    fn new(metadata: &ObjectCreationMetadata) -> LuaResult<Self> {
+        Ok(Self {
             workspace: None,
             run_service: None,
             log_service: None,
@@ -287,7 +277,19 @@ impl IInstanceComponent for DataModelComponent {
             graphics_quality_change_request: RBXScriptSignal::new(metadata),
             loaded: RBXScriptSignal::new(metadata),
             is_loaded: false,
-        }
+        })
+    }
+}
+
+impl IInstanceComponent for DataModelComponent {
+    fn clone(
+        self: &RwLockReadGuard<'_, Self>,
+        _: &Lua,
+        _: &ObjectCreationMetadata,
+    ) -> LuaResult<Self> {
+        Err(LuaError::RuntimeError(
+            "Cannot clone DataModelComponent".into(),
+        ))
     }
 }
 

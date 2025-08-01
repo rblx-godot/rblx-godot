@@ -1,3 +1,4 @@
+use std::fmt::Debug;
 use std::ops::BitOr;
 #[derive(Eq, PartialEq, Clone, Copy, PartialOrd, Ord)]
 pub struct SecurityContext(u8);
@@ -23,6 +24,9 @@ impl SecurityContext {
     pub const fn has(self, other: SecurityContext) -> bool {
         (self.0 & other.0) == other.0
     }
+    pub const fn from_raw(v: u8) -> Self {
+        SecurityContext(v)
+    }
 }
 
 impl Into<u8> for SecurityContext {
@@ -31,6 +35,24 @@ impl Into<u8> for SecurityContext {
     }
 }
 
+impl Debug for SecurityContext {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match *self {
+            Self::NONE => write!(f, "SecurityContext(NONE)"),
+            Self::PLUGIN => write!(f, "SecurityContext(PLUGIN)"),
+            Self::LOCAL_USER => write!(f, "SecurityContext(LOCAL_USER)"),
+            Self::ROBLOX_SCRIPT => write!(f, "SecurityContext(ROBLOX_SCRIPT)"),
+            Self::ROBLOX => write!(f, "SecurityContext(ROBLOX)"),
+            _ => write!(f, "SecurityContext(0x{:x})", self.0),
+        }
+    }
+}
+
+impl From<u8> for SecurityContext {
+    fn from(val: u8) -> Self {
+        SecurityContext(val)
+    }
+}
 #[repr(u8)]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ThreadIdentityType {

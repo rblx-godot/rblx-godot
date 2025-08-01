@@ -9,7 +9,8 @@ use super::{
     borrowck_ignore, FastFlag, FastFlags, Irc, RwLock, RwLockReadGuard, RwLockWriteGuard,
     TaskScheduler, Trc,
 };
-use super::{DynInstance, ManagedInstance, RblxVM, ThreadIdentityType, WeakManagedInstance};
+use super::{DynInstance, ManagedInstance, RblxVM, ThreadIdentityType};
+use crate::core::object::WeakManagedObject;
 use crate::instance::{DataModel, IModuleScript, LogService, RunService, WeakManagedActor};
 use crate::userdata::register_userdata_singletons;
 use r2g_mlua::{prelude::*, ChunkMode, Compiler};
@@ -34,7 +35,7 @@ pub mod registry_keys {
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct ThreadIdentity {
     pub security_identity: ThreadIdentityType,
-    pub script: Option<WeakManagedInstance>,
+    pub script: Option<WeakManagedObject>,
 }
 #[derive(Debug)]
 pub struct LuauState {
@@ -461,10 +462,10 @@ impl LuauState {
             actor: None,
         }
     }
-    pub fn get_vm(&self) -> RwLockReadGuard<RblxVM> {
+    pub fn get_vm(&'_ self) -> RwLockReadGuard<'_, RblxVM> {
         unsafe { self.vm.as_ref().unwrap_unchecked().read().unwrap() }
     }
-    pub fn get_vm_mut(&self) -> RwLockWriteGuard<RblxVM> {
+    pub fn get_vm_mut(&'_ self) -> RwLockWriteGuard<'_, RblxVM> {
         unsafe { self.vm.as_ref().unwrap_unchecked().write().unwrap() }
     }
 

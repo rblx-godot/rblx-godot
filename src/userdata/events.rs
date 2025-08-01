@@ -11,7 +11,7 @@ use std::{
 use super::from_lua_clone_impl;
 use crate::core::{
     get_state, get_state_with_rwlock, get_task_scheduler_from_lua, FastFlag,
-    InstanceCreationMetadata, InstanceCreationSignalList, LuauState, ParallelDispatch, Trc,
+    InstanceCreationSignalList, LuauState, ObjectCreationMetadata, ParallelDispatch, Trc,
     TrcReadLock, TrcWriteLock, Weak,
 };
 use r2g_mlua::prelude::*;
@@ -59,7 +59,7 @@ impl RBXScriptSignal {
         signal
     }
     #[inline]
-    pub fn new(metadata: &InstanceCreationMetadata) -> Trc<RBXScriptSignal> {
+    pub fn new(metadata: &ObjectCreationMetadata) -> Trc<RBXScriptSignal> {
         unsafe { Self::new_internal(metadata.signal_list.get().as_mut().unwrap()) }
     }
     pub fn connect(

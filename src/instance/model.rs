@@ -3,9 +3,7 @@ use r2g_mlua::prelude::*;
 use super::{IPVInstance, PVInstanceComponent};
 
 use crate::core::{
-    DynInstance, IInstance, IInstanceComponent, IObject, InheritanceBase, InheritanceTable,
-    InheritanceTableBuilder, InstanceComponent, InstanceCreationMetadata, Irc, ManagedInstance,
-    RwLock, RwLockReadGuard, RwLockWriteGuard,
+    DynInstance, DynObject, IInstance, IInstanceComponent, IObject, IObjectComponent, InheritanceBase, InheritanceTable, InheritanceTableBuilder, InstanceComponent, Irc, ManagedInstance, ObjectCreationMetadata, RwLock, RwLockReadGuard, RwLockWriteGuard
 };
 use crate::userdata::enums::{ModelLevelOfDetail, ModelStreamingMode};
 use crate::userdata::{CFrame, ManagedRBXScriptSignal};
@@ -57,31 +55,14 @@ impl IObject for Model {
             _ => false,
         }
     }
+
     fn lua_get(&self, lua: &Lua, name: String) -> LuaResult<LuaValue> {
         self.get_model_component()
             .lua_get(self, lua, &name)
             .or_else(|| self.get_pv_instance_component().lua_get(self, lua, &name))
             .unwrap_or_else(|| self.get_instance_component().lua_get(lua, &name))
     }
-    fn get_changed_signal(&self) -> ManagedRBXScriptSignal {
-        self.get_instance_component().changed.clone()
-    }
-    fn get_property_changed_signal(&self, property: String) -> ManagedRBXScriptSignal {
-        self.get_instance_component()
-            .get_property_changed_signal(property)
-            .unwrap()
-    }
-    fn get_class_name(&self) -> &'static str {
-        "Model"
-    }
-}
-impl IInstance for Model {
-    fn get_instance_component(&self) -> RwLockReadGuard<'_, InstanceComponent> {
-        self.instance.read().unwrap()
-    }
-    fn get_instance_component_mut(&self) -> RwLockWriteGuard<'_, InstanceComponent> {
-        self.instance.write().unwrap()
-    }
+
     fn lua_set(&self, lua: &Lua, name: String, val: LuaValue) -> LuaResult<()> {
         self.get_model_component_mut()
             .lua_set(self, lua, &name, &val)
@@ -91,9 +72,34 @@ impl IInstance for Model {
             })
             .unwrap_or_else(|| self.get_instance_component_mut().lua_set(lua, &name, val))
     }
+
+    fn get_changed_signal(&self) -> ManagedRBXScriptSignal {
+        self.get_instance_component().changed.clone()
+    }
+
+    fn get_property_changed_signal(&self, property: String) -> ManagedRBXScriptSignal {
+        self.get_instance_component()
+            .get_property_changed_signal(property)
+            .unwrap()
+    }
+
+    fn get_class_name(&self) -> &'static str {
+        "Model"
+    }
+
+}
+impl IInstance for Model {
+    fn get_instance_component(&self) -> RwLockReadGuard<'_, InstanceComponent> {
+        self.instance.read().unwrap()
+    }
+
+    fn get_instance_component_mut(&self) -> RwLockWriteGuard<'_, InstanceComponent> {
+        self.instance.write().unwrap()
+    }
+
     fn clone_instance(&self, lua: &Lua) -> LuaResult<ManagedInstance> {
         Ok(Irc::new_cyclic_fallable::<_, LuaError>(|x| {
-            let metadata = InstanceCreationMetadata::new("Model", x.cast_to_instance());
+            let metadata = ObjectCreationMetadata::new("Model", x.cast_to_object());
             let mut m = Model {
                 instance: RwLock::new_with_flag_auto(
                     self.get_instance_component().clone(lua, &metadata)?,
@@ -111,6 +117,7 @@ impl IInstance for Model {
         .cast_from_sized()
         .unwrap())
     }
+
 }
 impl IPVInstance for Model {
     fn get_pv_instance_component(&self) -> RwLockReadGuard<'_, PVInstanceComponent> {
@@ -130,10 +137,10 @@ impl IModel for Model {
     }
 }
 
-impl IInstanceComponent for ModelComponent {
+impl IObjectComponent for ModelComponent {
     fn lua_get(
         self: &mut RwLockReadGuard<'_, ModelComponent>,
-        _: &DynInstance,
+        _: &DynObject,
         _lua: &Lua,
         key: &String,
     ) -> Option<LuaResult<LuaValue>> {
@@ -148,7 +155,7 @@ impl IInstanceComponent for ModelComponent {
 
     fn lua_set(
         self: &mut RwLockWriteGuard<'_, ModelComponent>,
-        _: &DynInstance,
+        _: &DynObject,
         _lua: &Lua,
         key: &String,
         _value: &LuaValue,
@@ -162,10 +169,21 @@ impl IInstanceComponent for ModelComponent {
         }
     }
 
+    fn new(_: &ObjectCreationMetadata) -> LuaResult<Self> {
+        Ok(ModelComponent {
+            level_of_detail: ModelLevelOfDetail::Automatic,
+            model_streaming_mode: ModelStreamingMode::Default,
+            primary_part: None,
+            world_pivot: CFrame::IDENTITY,
+        })
+    }
+}
+
+impl IInstanceComponent for ModelComponent {
     fn clone(
         self: &RwLockReadGuard<'_, ModelComponent>,
         _: &Lua,
-        _: &InstanceCreationMetadata,
+        _: &ObjectCreationMetadata,
     ) -> LuaResult<Self> {
         Ok(ModelComponent {
             level_of_detail: self.level_of_detail,
@@ -174,30 +192,21 @@ impl IInstanceComponent for ModelComponent {
             world_pivot: self.world_pivot,
         })
     }
-
-    fn new(_: &InstanceCreationMetadata) -> Self {
-        ModelComponent {
-            level_of_detail: ModelLevelOfDetail::Automatic,
-            model_streaming_mode: ModelStreamingMode::Default,
-            primary_part: None,
-            world_pivot: CFrame::IDENTITY,
-        }
-    }
 }
 
 impl Model {
-    pub fn new() -> ManagedInstance {
-        Irc::new_cyclic(|x| {
-            let mut metadata = InstanceCreationMetadata::new("Model", x.cast_to_instance());
+    pub fn new() -> LuaResult<ManagedInstance> {
+        Ok(Irc::new_cyclic_fallable(|x| {
+            let mut metadata = ObjectCreationMetadata::new("Model", x.cast_to_object());
             let mut m = Model {
-                instance: RwLock::new_with_flag_auto(InstanceComponent::new(&mut metadata)),
-                pvinstance: RwLock::new_with_flag_auto(PVInstanceComponent::new(&mut metadata)),
-                model: RwLock::new_with_flag_auto(ModelComponent::new(&mut metadata)),
+                instance: RwLock::new_with_flag_auto(InstanceComponent::new(&mut metadata)?),
+                pvinstance: RwLock::new_with_flag_auto(PVInstanceComponent::new(&mut metadata)?),
+                model: RwLock::new_with_flag_auto(ModelComponent::new(&mut metadata)?),
             };
             DynInstance::submit_metadata(&mut m, metadata);
-            m
-        })
+            Ok::<_, LuaError>(m)
+        }).unwrap()
         .cast_from_sized()
-        .unwrap()
+        .unwrap())
     }
 }

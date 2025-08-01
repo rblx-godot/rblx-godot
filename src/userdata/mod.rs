@@ -8,6 +8,10 @@ pub trait LuaSingleton {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct LuaSingletonRegister(pub fn(&Lua) -> LuaResult<()>);
+inventory::collect!(LuaSingletonRegister);
+
 macro_rules! from_lua_copy_impl {
     ($name: ident) => {
         impl FromLua for $name {
@@ -81,6 +85,9 @@ pub use events::{ManagedRBXScriptSignal, RBXScriptConnection, RBXScriptSignal};
 use crate::core::ManagedInstance;
 
 pub fn register_userdata_singletons(lua: &mut Lua) -> LuaResult<()> {
+    for singleton_register in inventory::iter::<LuaSingletonRegister> {
+        singleton_register.0(lua)?;
+    }
     Axes::register_singleton(lua)?;
     CFrame::register_singleton(lua)?;
 

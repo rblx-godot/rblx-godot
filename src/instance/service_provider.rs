@@ -2,8 +2,7 @@ use r2g_mlua::prelude::*;
 
 use crate::core::lua_macros::{lua_getter, lua_invalid_argument};
 use crate::core::{
-    inheritance_cast_to, DynInstance, IInstance, IInstanceComponent, InstanceCreationMetadata,
-    ManagedInstance, RwLockReadGuard, RwLockWriteGuard,
+    inheritance_cast_to, DynObject, IInstance, IInstanceComponent, IObjectComponent, ManagedInstance, ObjectCreationMetadata, RwLockReadGuard, RwLockWriteGuard
 };
 use crate::userdata::{ManagedRBXScriptSignal, RBXScriptSignal};
 #[derive(Debug)]
@@ -19,10 +18,10 @@ pub trait IServiceProvider: IInstance {
     fn find_service(&self, service_name: String) -> LuaResult<Option<ManagedInstance>>;
 }
 
-impl IInstanceComponent for ServiceProviderComponent {
+impl IObjectComponent for ServiceProviderComponent {
     fn lua_get(
         self: &mut RwLockReadGuard<'_, Self>,
-        _ptr: &DynInstance,
+        _ptr: &DynObject,
         lua: &Lua,
         key: &String,
     ) -> Option<LuaResult<LuaValue>> {
@@ -58,7 +57,7 @@ impl IInstanceComponent for ServiceProviderComponent {
 
     fn lua_set(
         self: &mut RwLockWriteGuard<'_, Self>,
-        _ptr: &DynInstance,
+        _ptr: &DynObject,
         _lua: &Lua,
         _key: &String,
         _value: &LuaValue,
@@ -66,19 +65,22 @@ impl IInstanceComponent for ServiceProviderComponent {
         None // unimplemented
     }
 
-    fn clone(
-        self: &RwLockReadGuard<'_, Self>,
-        _: &Lua,
-        metadata: &InstanceCreationMetadata,
-    ) -> LuaResult<Self> {
-        Ok(Self::new(metadata))
-    }
-
-    fn new(metadata: &InstanceCreationMetadata) -> Self {
-        Self {
+    fn new(metadata: &ObjectCreationMetadata) -> LuaResult<Self> {
+        Ok(Self {
             close: RBXScriptSignal::new(metadata),
             service_added: RBXScriptSignal::new(metadata),
             service_removing: RBXScriptSignal::new(metadata),
-        }
+        })
+    }
+}
+
+impl IInstanceComponent for ServiceProviderComponent {
+    
+    fn clone(
+        self: &RwLockReadGuard<'_, Self>,
+        _: &Lua,
+        metadata: &ObjectCreationMetadata,
+    ) -> LuaResult<Self> {
+        Ok(Self::new(metadata)?)
     }
 }

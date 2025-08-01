@@ -1,5 +1,4 @@
 use std::borrow::Borrow;
-use std::cell::UnsafeCell;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -11,12 +10,15 @@ use r2g_mlua::prelude::*;
 
 use crate::core::alloc::Allocator;
 use crate::core::lua_macros::lua_getter;
+use crate::core::object::IObjectComponent;
 use crate::core::{
-    get_state, get_task_scheduler_from_lua, IWeak, Irc, IrcHead, ParallelDispatch, RwLockReadGuard,
-    RwLockWriteGuard,
+    fat_to_metadata, fat_to_thin_mut, get_state, get_task_scheduler_from_lua,
+    inheritance_cast_to_mut, thin_to_fat_mut, IWeak, Irc, IrcHead, ParallelDispatch,
+    RwLockReadGuard, RwLockWriteGuard,
 };
 use crate::userdata::{ManagedRBXScriptSignal, RBXScriptSignal};
 
+use super::object::{DynObject, ObjectCreationMetadata, WeakManagedObject};
 use super::{IObject, Weak};
 
 pub type DynInstance = dyn IInstance;
@@ -24,29 +26,12 @@ pub type ManagedInstance = Irc<DynInstance>;
 pub type WeakManagedInstance = IWeak<DynInstance>;
 type EventsTable = HashMap<String, ManagedRBXScriptSignal>;
 
-pub trait IInstanceComponent: Sized {
-    unsafe fn weak_to_strong_instance(ptr: WeakManagedInstance) -> ManagedInstance {
-        ptr.upgrade().unwrap_unchecked()
-    }
-    fn lua_get(
-        self: &mut RwLockReadGuard<'_, Self>,
-        ptr: &DynInstance,
-        lua: &Lua,
-        key: &String,
-    ) -> Option<LuaResult<LuaValue>>;
-    fn lua_set(
-        self: &mut RwLockWriteGuard<'_, Self>,
-        ptr: &DynInstance,
-        lua: &Lua,
-        key: &String,
-        value: &LuaValue,
-    ) -> Option<LuaResult<()>>;
+pub trait IInstanceComponent: IObjectComponent {
     fn clone(
         self: &RwLockReadGuard<'_, Self>,
         lua: &Lua,
-        metadata: &InstanceCreationMetadata,
+        metadata: &ObjectCreationMetadata,
     ) -> LuaResult<Self>;
-    fn new(metadata: &InstanceCreationMetadata) -> Self;
 }
 
 type ReadInstanceComponent<'a> = RwLockReadGuard<'a, InstanceComponent>;
@@ -63,10 +48,8 @@ impl<'a> IReadInstanceComponent for WriteInstanceComponent<'a> {}
 pub(crate) type InstanceCreationSignalList = Vec<Weak<RBXScriptSignal>>;
 
 pub trait IInstance: IObject {
-    fn get_instance_component(&self) -> RwLockReadGuard<InstanceComponent>;
-    fn get_instance_component_mut(&self) -> RwLockWriteGuard<InstanceComponent>;
-
-    fn lua_set(&self, lua: &Lua, name: String, val: LuaValue) -> LuaResult<()>;
+    fn get_instance_component(&'_ self) -> RwLockReadGuard<'_, InstanceComponent>;
+    fn get_instance_component_mut(&'_ self) -> RwLockWriteGuard<'_, InstanceComponent>;
 
     fn clone_instance(&self, lua: &Lua) -> LuaResult<ManagedInstance>;
 
@@ -194,7 +177,13 @@ impl DynInstance {
         if parent.is_some() {
             let _parent_instance = parent.as_ref().unwrap();
             let p = _parent_instance.get_instance_component();
-            let this_ptr = this._ptr.upgrade().unwrap();
+            let this_ptr = unsafe {
+                this._ptr
+                    .upgrade()
+                    .unwrap()
+                    .cast_from_unsized::<DynInstance>()
+                    .unwrap_unchecked()
+            };
             let _guard_release = this.guard_release();
             if DynInstance::guard_is_descendant_of(&p, this_ptr)? {
                 return Err(LuaError::RuntimeError(
@@ -205,7 +194,13 @@ impl DynInstance {
         if this.parent.is_some() {
             // Descendant removing for all ancestors
             let ancestors = DynInstance::guard_get_ancestors(&*this);
-            let _ptr_this = this._ptr.upgrade().unwrap();
+            let _ptr_this = unsafe {
+                this._ptr
+                    .upgrade()
+                    .unwrap()
+                    .cast_from_unsized::<DynInstance>()
+                    .unwrap_unchecked()
+            };
             let _guard_release = this.guard_release();
             for ancestor in ancestors {
                 ancestor
@@ -221,7 +216,13 @@ impl DynInstance {
         swap(&mut this.parent, &mut old_parent);
 
         if old_parent.is_some() {
-            let _ptr_this = this._ptr.upgrade().unwrap();
+            let _ptr_this = unsafe {
+                this._ptr
+                    .upgrade()
+                    .unwrap()
+                    .cast_from_unsized::<DynInstance>()
+                    .unwrap_unchecked()
+            };
             let _guard_release = this.guard_release();
             let old_parent = old_parent.unwrap().upgrade().unwrap();
             {
@@ -238,7 +239,13 @@ impl DynInstance {
 
         let descendants = DynInstance::guard_get_descendants(this)?;
 
-        let _ptr_this = this._ptr.upgrade().unwrap();
+        let _ptr_this: Irc<dyn IInstance> = unsafe {
+            this._ptr
+                .upgrade()
+                .unwrap()
+                .cast_from_unsized()
+                .unwrap_unchecked()
+        };
         let _guard_release = this.guard_release();
         for i in descendants {
             i.get_instance_component()
@@ -426,7 +433,16 @@ impl DynInstance {
     }
     pub fn add_tag(&self, lua: &Lua, tag: String) -> LuaResult<()> {
         let mut write = self.get_instance_component_mut();
-        let ptr = write._ptr.clone();
+        let ptr = unsafe {
+            write
+                ._ptr
+                .clone()
+                .upgrade()
+                .unwrap()
+                .cast_from_unsized::<DynInstance>()
+                .unwrap_unchecked()
+        }
+        .downgrade();
         write.tags.insert(tag.clone());
         drop(write);
         get_state(lua)
@@ -599,7 +615,16 @@ impl DynInstance {
     }
     pub fn remove_tag(&self, lua: &Lua, tag: String) -> LuaResult<()> {
         let mut write = self.get_instance_component_mut();
-        let ptr = write._ptr.clone();
+        let ptr = unsafe {
+            write
+                ._ptr
+                .clone()
+                .upgrade()
+                .unwrap()
+                .cast_from_unsized::<DynInstance>()
+                .unwrap_unchecked()
+                .downgrade()
+        };
         write.tags.remove(&tag);
         drop(write);
         get_state(lua)
@@ -618,7 +643,7 @@ impl DynInstance {
             .map(move |x| x.write().fire(lua, (value,)))
             .unwrap_or(Ok(()))
     }
-    pub fn submit_metadata(&mut self, mut metadata: InstanceCreationMetadata) {
+    pub fn submit_metadata(&mut self, mut metadata: ObjectCreationMetadata) {
         self.get_instance_component_mut().signal_list =
             Some(take(&mut metadata.signal_list).into_inner());
         unsafe {
@@ -639,7 +664,7 @@ pub struct InstanceComponent {
     archivable: bool,
     name: String,
     parent: Option<WeakManagedInstance>,
-    _ptr: WeakManagedInstance,
+    _ptr: WeakManagedObject,
     unique_id: usize,
     children: Vec<ManagedInstance>,
     children_cache: HashMap<String, WeakManagedInstance>,
@@ -671,10 +696,10 @@ impl PartialEq for DynInstance {
 }
 impl Eq for DynInstance {}
 
-impl IInstanceComponent for InstanceComponent {
+impl IObjectComponent for InstanceComponent {
     fn lua_get(
         self: &mut RwLockReadGuard<'_, Self>,
-        _: &DynInstance,
+        _: &DynObject,
         lua: &Lua,
         key: &String,
     ) -> Option<LuaResult<LuaValue>> {
@@ -683,7 +708,7 @@ impl IInstanceComponent for InstanceComponent {
 
     fn lua_set(
         self: &mut RwLockWriteGuard<'_, Self>,
-        _: &DynInstance,
+        _: &DynObject,
         lua: &Lua,
         key: &String,
         value: &LuaValue,
@@ -691,7 +716,7 @@ impl IInstanceComponent for InstanceComponent {
         Some(InstanceComponent::lua_set(self, lua, key, value.clone()))
     }
 
-    fn new(metadata: &InstanceCreationMetadata) -> Self {
+    fn new(metadata: &ObjectCreationMetadata) -> LuaResult<Self> {
         let inst = InstanceComponent {
             parent: None,
             name: String::from(metadata.class_name),
@@ -719,12 +744,15 @@ impl IInstanceComponent for InstanceComponent {
             attributes: HashMap::default(),
             tags: HashSet::default(),
         };
-        inst
+        Ok(inst)
     }
+}
+
+impl IInstanceComponent for InstanceComponent {
     fn clone(
         self: &RwLockReadGuard<'_, Self>,
         lua: &Lua,
-        metadata: &InstanceCreationMetadata,
+        metadata: &ObjectCreationMetadata,
     ) -> LuaResult<Self> {
         let mut new_children = Vec::new();
         for i in self.children.iter() {
@@ -765,10 +793,15 @@ impl IInstanceComponent for InstanceComponent {
 
 impl InstanceComponent {
     pub fn get_instance_pointer(self: &RwLockReadGuard<'_, Self>) -> ManagedInstance {
-        unsafe { self._ptr.upgrade().unwrap_unchecked() }
+        unsafe {
+            self._ptr
+                .cast_to_instance_unsafe()
+                .upgrade()
+                .unwrap_unchecked()
+        }
     }
     pub fn get_weak_instance_pointer(self: &RwLockReadGuard<'_, Self>) -> WeakManagedInstance {
-        self._ptr.clone()
+        self._ptr.cast_to_instance_unsafe().clone()
     }
     pub fn lua_get(
         self: &mut RwLockReadGuard<'_, Self>,
@@ -922,7 +955,7 @@ impl InstanceComponent {
             .expect("instance creation metadata not set.")
     }
     fn remake_cache(self: &mut RwLockReadGuard<'_, Self>) {
-        let inst = self._ptr.upgrade().unwrap();
+        let inst = self._ptr.cast_to_instance_unsafe().upgrade().unwrap();
         let _release = self.guard_release();
         let mut write = inst.get_instance_component_mut();
 
@@ -969,7 +1002,7 @@ impl InstanceComponent {
         if read.is_some() {
             Ok(read.unwrap().clone())
         } else {
-            let inst = self._ptr.upgrade().unwrap();
+            let inst = self._ptr.cast_to_instance_unsafe().upgrade().unwrap();
             let _release = self.guard_release();
 
             let mut write = inst.get_instance_component_mut();
@@ -1019,28 +1052,26 @@ impl<T: IInstance, A: Allocator + Clone + Send + Sync> IWeak<T, A> {
     }
 }
 
-pub struct InstanceCreationMetadata {
-    class_name: &'static str,
-    ptr: WeakManagedInstance,
-    pub(crate) signal_list: UnsafeCell<InstanceCreationSignalList>,
+#[doc(hidden)]
+trait UnsafeObjectCast<A: Allocator + Clone + Send + Sync> {
+    // only usable here.
+    fn cast_to_instance_unsafe(&self) -> IWeak<DynInstance, A>;
 }
-impl InstanceCreationMetadata {
-    pub fn new(class_name: &'static str, ptr: WeakManagedInstance) -> Self {
-        Self {
-            class_name,
-            ptr,
-            signal_list: UnsafeCell::new(InstanceCreationSignalList::new()),
-        }
-    }
-    pub fn get_ptr(&self) -> WeakManagedInstance {
-        self.ptr.clone()
-    }
-    pub fn get_ptr_ref(&self) -> &WeakManagedInstance {
-        &self.ptr
-    }
-}
-impl Drop for InstanceCreationMetadata {
-    fn drop(&mut self) {
-        panic!("InstanceCreationMetadata dropped without being submitted to Instance.");
+
+impl<A: Allocator + Clone + Send + Sync> UnsafeObjectCast<A> for IWeak<dyn IObject, A> {
+    fn cast_to_instance_unsafe(&self) -> IWeak<DynInstance, A> {
+        let (header_raw, p_raw, alloc) = self.clone().into_inner_with_allocator();
+        // KNOWN UB BYPASS: InheritanceBase does not require initialization.
+        let p = unsafe {
+            inheritance_cast_to_mut!(p_raw.as_mut().unwrap_unchecked(), DynInstance).unwrap()
+        } as *mut DynInstance;
+        let header = unsafe {
+            // The above code will have already panicked if the cast failed.
+            let header_raw_ptr = header_raw.as_ptr();
+            let metadata = fat_to_metadata(header_raw_ptr);
+            let thin = fat_to_thin_mut(header_raw_ptr);
+            NonNull::new_unchecked(thin_to_fat_mut(thin, metadata))
+        };
+        IWeak::from_inner_with_allocator((header, p, alloc))
     }
 }

@@ -2,8 +2,7 @@ use std::collections::HashMap;
 
 use super::{IModel, IPVInstance, ModelComponent, PVInstanceComponent};
 use crate::core::{
-    DynInstance, IInstance, IInstanceComponent, IObject, InstanceComponent,
-    InstanceCreationMetadata, ManagedInstance,
+    DynInstance, IInstance, IInstanceComponent, IObject, IObjectComponent, InstanceComponent, ManagedInstance, ObjectCreationMetadata
 };
 use crate::{
     core::{
@@ -83,6 +82,16 @@ impl IObject for Actor {
         }
     }
 
+    fn lua_set(&self, lua: &Lua, name: String, val: LuaValue) -> LuaResult<()> {
+        self.get_model_component_mut()
+            .lua_set(self, lua, &name, &val)
+            .or_else(|| {
+                self.get_pv_instance_component_mut()
+                    .lua_set(self, lua, &name, &val)
+            })
+            .unwrap_or_else(|| self.get_instance_component_mut().lua_set(lua, &name, val))
+    }
+
     fn get_class_name(&self) -> &'static str {
         "Actor"
     }
@@ -106,27 +115,16 @@ impl IObject for Actor {
 }
 
 impl IInstance for Actor {
-    fn get_instance_component(&self) -> RwLockReadGuard<InstanceComponent> {
+    fn get_instance_component(&'_ self) -> RwLockReadGuard<'_, InstanceComponent> {
         self.instance.read().unwrap()
     }
 
-    fn get_instance_component_mut(&self) -> RwLockWriteGuard<InstanceComponent> {
+    fn get_instance_component_mut(&'_ self) -> RwLockWriteGuard<'_, InstanceComponent> {
         self.instance.write().unwrap()
     }
-
-    fn lua_set(&self, lua: &Lua, name: String, val: LuaValue) -> LuaResult<()> {
-        self.get_model_component_mut()
-            .lua_set(self, lua, &name, &val)
-            .or_else(|| {
-                self.get_pv_instance_component_mut()
-                    .lua_set(self, lua, &name, &val)
-            })
-            .unwrap_or_else(|| self.get_instance_component_mut().lua_set(lua, &name, val))
-    }
-
     fn clone_instance(&self, lua: &Lua) -> LuaResult<ManagedInstance> {
         Ok(Irc::new_cyclic_fallable::<_, LuaError>(|x| {
-            let metadata = InstanceCreationMetadata::new("Actor", x.cast_to_instance());
+            let metadata = ObjectCreationMetadata::new("Actor", x.cast_to_object());
             let state = self.state.read().get_vm_mut().create_sub_state(x);
             let a = Actor {
                 instance: RwLock::new_with_flag_auto(
@@ -173,20 +171,22 @@ impl IModel for Actor {
 }
 
 impl Actor {
-    pub fn new(mut vm: RwLockWriteGuard<'_, RblxVM>) -> ManagedInstance {
-        let actor: Irc<DynInstance> = Irc::new_cyclic(|x| {
-            let metadata = InstanceCreationMetadata::new("Actor", x.cast_to_instance());
-            Actor {
-                instance: RwLock::new_with_flag_auto(InstanceComponent::new(&metadata)),
-                pvinstance: RwLock::new_with_flag_auto(PVInstanceComponent::new(&metadata)),
-                model: RwLock::new_with_flag_auto(ModelComponent::new(&metadata)),
+    pub fn new(mut vm: RwLockWriteGuard<'_, RblxVM>) -> LuaResult<ManagedInstance> {
+        let actor: Irc<DynInstance> = Irc::new_cyclic_fallable(|x| {
+            let metadata = ObjectCreationMetadata::new("Actor", x.cast_to_object());
+            let mut a = Actor {
+                instance: RwLock::new_with_flag_auto(InstanceComponent::new(&metadata)?),
+                pvinstance: RwLock::new_with_flag_auto(PVInstanceComponent::new(&metadata)?),
+                model: RwLock::new_with_flag_auto(ModelComponent::new(&metadata)?),
                 state: vm.create_sub_state(x),
                 messages_bound: RwLock::new(HashMap::new()),
-            }
-        })
+            };
+            DynInstance::submit_metadata(&mut a, metadata);
+            Ok::<_, LuaError>(a)
+        }).unwrap()
         .cast_from_sized()
         .unwrap();
-        actor
+        Ok(actor)
     }
 
     pub fn bind_to_message(

@@ -7,6 +7,7 @@ use bevy_reflect::{Reflect, TypeInfo};
 
 use super::{LuauState, RblxVM, RwLock};
 
+// TODO: Proc macro to automatically generate enum and flags
 #[derive(Reflect, Clone, Copy, PartialEq, Eq, Debug, Hash)]
 #[repr(u16)]
 #[non_exhaustive]
