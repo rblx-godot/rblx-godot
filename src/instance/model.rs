@@ -3,7 +3,9 @@ use r2g_mlua::prelude::*;
 use super::{IPVInstance, PVInstanceComponent};
 
 use crate::core::{
-    DynInstance, DynObject, IInstance, IInstanceComponent, IObject, IObjectComponent, InheritanceBase, InheritanceTable, InheritanceTableBuilder, InstanceComponent, Irc, ManagedInstance, ObjectCreationMetadata, RwLock, RwLockReadGuard, RwLockWriteGuard
+    DynInstance, DynObject, IInstance, IInstanceComponent, IObject, IObjectComponent,
+    InheritanceBase, InheritanceTable, InheritanceTableBuilder, InstanceComponent, Irc,
+    ManagedInstance, ObjectCreationMetadata, RwLock, RwLockReadGuard, RwLockWriteGuard,
 };
 use crate::userdata::enums::{ModelLevelOfDetail, ModelStreamingMode};
 use crate::userdata::{CFrame, ManagedRBXScriptSignal};
@@ -86,7 +88,6 @@ impl IObject for Model {
     fn get_class_name(&self) -> &'static str {
         "Model"
     }
-
 }
 impl IInstance for Model {
     fn get_instance_component(&self) -> RwLockReadGuard<'_, InstanceComponent> {
@@ -117,7 +118,6 @@ impl IInstance for Model {
         .cast_from_sized()
         .unwrap())
     }
-
 }
 impl IPVInstance for Model {
     fn get_pv_instance_component(&self) -> RwLockReadGuard<'_, PVInstanceComponent> {
@@ -205,7 +205,8 @@ impl Model {
             };
             DynInstance::submit_metadata(&mut m, metadata);
             Ok::<_, LuaError>(m)
-        }).unwrap()
+        })
+        .unwrap()
         .cast_from_sized()
         .unwrap())
     }

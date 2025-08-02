@@ -70,6 +70,7 @@ pub(self) use from_lua_clone_impl;
 
 mod axes;
 mod cframe;
+mod color3;
 pub mod enums;
 mod events;
 mod instance;
@@ -80,6 +81,7 @@ pub use vectors::{Vector2int16, Vector3int16};
 pub type Vector2 = vectors::Vector2<f64>;
 pub type Vector3 = vectors::Vector3<f64>;
 pub use cframe::CFrame;
+pub use color3::Color3;
 pub use events::{ManagedRBXScriptSignal, RBXScriptConnection, RBXScriptSignal};
 
 use crate::core::ManagedInstance;

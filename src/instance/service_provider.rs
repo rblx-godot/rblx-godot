@@ -2,7 +2,8 @@ use r2g_mlua::prelude::*;
 
 use crate::core::lua_macros::{lua_getter, lua_invalid_argument};
 use crate::core::{
-    inheritance_cast_to, DynObject, IInstance, IInstanceComponent, IObjectComponent, ManagedInstance, ObjectCreationMetadata, RwLockReadGuard, RwLockWriteGuard
+    inheritance_cast_to, DynObject, IInstance, IInstanceComponent, IObjectComponent,
+    ManagedInstance, ObjectCreationMetadata, RwLockReadGuard, RwLockWriteGuard,
 };
 use crate::userdata::{ManagedRBXScriptSignal, RBXScriptSignal};
 #[derive(Debug)]
@@ -75,7 +76,6 @@ impl IObjectComponent for ServiceProviderComponent {
 }
 
 impl IInstanceComponent for ServiceProviderComponent {
-    
     fn clone(
         self: &RwLockReadGuard<'_, Self>,
         _: &Lua,

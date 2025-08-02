@@ -4,7 +4,10 @@ use std::fmt::Debug;
 
 use crate::{
     core::{
-        lua_macros::{lua_getter, lua_invalid_argument}, DynInstance, DynObject, IInstance, IInstanceComponent, IObject, IObjectComponent, InheritanceBase, InheritanceTableBuilder, InstanceComponent, Irc, ManagedInstance, ObjectCreationMetadata, RwLock, RwLockReadGuard, RwLockWriteGuard
+        lua_macros::{lua_getter, lua_invalid_argument},
+        DynInstance, DynObject, IInstance, IInstanceComponent, IObject, IObjectComponent,
+        InheritanceBase, InheritanceTableBuilder, InstanceComponent, Irc, ManagedInstance,
+        ObjectCreationMetadata, RwLock, RwLockReadGuard, RwLockWriteGuard,
     },
     userdata::{enums::MessageType, ManagedRBXScriptSignal, RBXScriptSignal},
 };
@@ -170,7 +173,8 @@ impl LogService {
             };
             DynInstance::submit_metadata(&mut l, metadata);
             Ok::<_, LuaError>(l)
-        }).unwrap();
+        })
+        .unwrap();
         inst.add_hook(|x| {
             if let Some((msg, msg_type, _timestamp)) = x {
                 match msg_type {

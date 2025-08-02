@@ -17,7 +17,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 bevy_reflect = "0.15.1"
-godot = { version = "0.2.1", features = ["register-docs"] }
+godot = { version = "0.2.1", features = ["register-docs", "experimental-threads"] }
 r2g_mlua = { version = "0.10.3", features = ["luau", "luau-jit", "macros", "async", "vendored"] }
 parking_lot = { version = "0.12.3", features = [] }
 rustversion = "1.0.19"

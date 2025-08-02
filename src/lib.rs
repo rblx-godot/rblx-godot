@@ -16,6 +16,7 @@ compile_error!(
 pub mod core;
 mod godot_vm_bindings;
 pub mod instance;
+pub mod render;
 pub mod userdata;
 
 use core::verify_gdext_api_compat;

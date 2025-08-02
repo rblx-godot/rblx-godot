@@ -5,6 +5,7 @@ rblx_godot_derive::create_enums!([
     Axis,
     FluidForces,
     IKControlConstraintSupport,
+    Material,
     MeshPartHeadsAndAccessories,
     MessageType,
     ModelLevelOfDetail,
@@ -13,6 +14,7 @@ rblx_godot_derive::create_enums!([
     MoverConstraintRootBehaviorMode,
     NormalId,
     PathfindingUseImprovedSearch,
+    PartType,
     PhysicsSteppingMethod,
     PlayerCharacterDestroyBehavior,
     PrimalPhysicsSolver,
@@ -25,5 +27,6 @@ rblx_godot_derive::create_enums!([
     SandboxedInstanceMode,
     SignalBehavior,
     StreamOutBehavior,
-    StreamingIntegrityMode
+    StreamingIntegrityMode,
+    Technology
 ]);

@@ -1,5 +1,5 @@
 use r2g_mlua::prelude::*;
-
+#[deprecated(note = "Use `into_lua!` instead")]
 macro_rules! lua_getter {
     ($lua: ident, $prop: expr) => {
         IntoLua::into_lua($prop, $lua)
@@ -48,6 +48,7 @@ macro_rules! lua_getter {
         })
     };
 }
+#[deprecated(note = "Use `from_lua!` instead")]
 macro_rules! lua_setter {
     ($lua: ident, $prop: expr) => {
         FromLua::from_lua($prop, $lua)
@@ -129,6 +130,31 @@ pub(crate) fn args_to_string(args: LuaMultiValue, delimiter: &str) -> String {
     })
 }
 
+macro_rules! from_lua {
+    ($lua: ident => $value: expr) => {
+        r2g_mlua::FromLua::from_lua($value.to_owned(), $lua)
+    };
+    ($lua: ident? => $value: expr) => {
+        match r2g_mlua::FromLua::from_lua($value.to_owned(), $lua) {
+            Ok(val) => val,
+            Err(err) => return Some(Err(err)),
+        }
+    };
+}
+macro_rules! into_lua {
+    ($lua: ident => $value: expr) => {
+        r2g_mlua::IntoLua::into_lua($value, $lua)
+    };
+    ($lua: ident? => $value: expr) => {
+        match r2g_mlua::IntoLua::into_lua($value.to_owned(), $lua) {
+            Ok(val) => val,
+            Err(err) => return Some(Err(err)),
+        }
+    };
+}
+
+pub(crate) use from_lua;
+pub(crate) use into_lua;
 pub(crate) use lua_getter;
 pub(crate) use lua_invalid_argument;
 pub(crate) use lua_setter;

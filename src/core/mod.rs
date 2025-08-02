@@ -6,7 +6,7 @@ mod inheritance;
 mod instance;
 mod instance_repl_table;
 mod instance_tag_collection;
-pub mod lua_macros;
+pub(crate) mod lua_macros;
 mod object;
 mod once;
 mod pointers;

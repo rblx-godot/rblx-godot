@@ -2,7 +2,8 @@ use std::collections::HashMap;
 
 use super::{IModel, IPVInstance, ModelComponent, PVInstanceComponent};
 use crate::core::{
-    DynInstance, IInstance, IInstanceComponent, IObject, IObjectComponent, InstanceComponent, ManagedInstance, ObjectCreationMetadata
+    DynInstance, IInstance, IInstanceComponent, IObject, IObjectComponent, InstanceComponent,
+    ManagedInstance, ObjectCreationMetadata,
 };
 use crate::{
     core::{
@@ -183,7 +184,8 @@ impl Actor {
             };
             DynInstance::submit_metadata(&mut a, metadata);
             Ok::<_, LuaError>(a)
-        }).unwrap()
+        })
+        .unwrap()
         .cast_from_sized()
         .unwrap();
         Ok(actor)

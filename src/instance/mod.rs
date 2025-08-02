@@ -1,5 +1,6 @@
 mod actor;
 mod data_model;
+mod lighting;
 mod log_service;
 mod model;
 mod pvinstance;

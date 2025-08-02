@@ -2,7 +2,9 @@ use r2g_mlua::prelude::*;
 
 use crate::{
     core::{
-        lua_macros::lua_getter, DynInstance, DynObject, IInstance, IInstanceComponent, IObject, IObjectComponent, InheritanceBase, InheritanceTableBuilder, InstanceComponent, Irc, ManagedInstance, ObjectCreationMetadata, RwLock, RwLockReadGuard, RwLockWriteGuard
+        lua_macros::lua_getter, DynInstance, DynObject, IInstance, IInstanceComponent, IObject,
+        IObjectComponent, InheritanceBase, InheritanceTableBuilder, InstanceComponent, Irc,
+        ManagedInstance, ObjectCreationMetadata, RwLock, RwLockReadGuard, RwLockWriteGuard,
     },
     userdata::{
         enums::{
@@ -263,11 +265,14 @@ impl Workspace {
                     &metadata,
                 )?),
                 model_component: RwLock::new_with_flag_auto(ModelComponent::new(&metadata)?),
-                workspace_component: RwLock::new_with_flag_auto(WorkspaceComponent::new(&metadata)?),
+                workspace_component: RwLock::new_with_flag_auto(WorkspaceComponent::new(
+                    &metadata,
+                )?),
             };
             DynInstance::submit_metadata(&mut r, metadata);
-            Ok::<_,LuaError>(r)
-        }).unwrap();
+            Ok::<_, LuaError>(r)
+        })
+        .unwrap();
         DynInstance::set_name(&*inst, "Workspace".into()).unwrap();
         Ok(inst)
     }

@@ -120,7 +120,9 @@ impl IServiceProvider for DataModel {
         self.service_provider.read().unwrap()
     }
 
-    fn get_service_provider_component_mut(&'_ self) -> RwLockWriteGuard<'_, ServiceProviderComponent> {
+    fn get_service_provider_component_mut(
+        &'_ self,
+    ) -> RwLockWriteGuard<'_, ServiceProviderComponent> {
         self.service_provider.write().unwrap()
     }
 
@@ -147,7 +149,8 @@ impl DataModel {
             };
             DynInstance::submit_metadata(&mut i, metadata);
             Ok::<_, LuaError>(i)
-        }).unwrap();
+        })
+        .unwrap();
         DynInstance::set_name(&*game, flags.get_string(FastFlag::GameName)).unwrap();
         DynInstance::lock_parent(&*game);
         game

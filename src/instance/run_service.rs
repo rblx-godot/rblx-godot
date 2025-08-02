@@ -2,7 +2,10 @@ use r2g_mlua::prelude::*;
 
 use crate::core::lua_macros::lua_getter;
 use crate::core::{
-    borrowck_ignore_mut, get_state, get_state_with_rwlock, DynInstance, FastFlag, IInstance, IObject, IObjectComponent, InheritanceBase, InheritanceTable, InheritanceTableBuilder, InstanceComponent, Irc, LuauState, ManagedInstance, ObjectCreationMetadata, RwLock, RwLockReadGuard, RwLockWriteGuard, Trc
+    borrowck_ignore_mut, get_state, get_state_with_rwlock, DynInstance, FastFlag, IInstance,
+    IObject, IObjectComponent, InheritanceBase, InheritanceTable, InheritanceTableBuilder,
+    InstanceComponent, Irc, LuauState, ManagedInstance, ObjectCreationMetadata, RwLock,
+    RwLockReadGuard, RwLockWriteGuard, Trc,
 };
 use crate::userdata::{ManagedRBXScriptSignal, RBXScriptSignal};
 
@@ -145,7 +148,8 @@ impl RunService {
             };
             DynInstance::submit_metadata(&mut r, metadata);
             Ok::<_, LuaError>(r)
-        }).unwrap();
+        })
+        .unwrap();
         DynInstance::set_name(&*inst, "Run Service".into()).unwrap();
         Ok(inst)
     }
