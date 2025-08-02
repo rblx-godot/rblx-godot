@@ -13,6 +13,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Install cargo-fmt
+        run: rustup component add --toolchain nightly-x86_64-unknown-linux-gnu rustfmt
       - name: Check formatting
         run: cargo fmt --check
   build:
