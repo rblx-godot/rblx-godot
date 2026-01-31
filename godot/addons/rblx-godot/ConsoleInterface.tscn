@@ -1,8 +1,8 @@
-[gd_scene load_steps=2 format=3 uid="uid://o8nd2oo16uq5"]
+[gd_scene format=3 uid="uid://o8nd2oo16uq5"]
 
 [ext_resource type="Theme" uid="uid://d2flu12ih8rkt" path="res://addons/rblx-godot/console.tres" id="1_46qky"]
 
-[node name="ConsoleInterface" type="Panel"]
+[node name="ConsoleInterface" type="Panel" unique_id=1705423247]
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
@@ -10,7 +10,7 @@ grow_horizontal = 2
 grow_vertical = 2
 theme = ExtResource("1_46qky")
 
-[node name="ConsoleInterface" type="VBoxContainer" parent="."]
+[node name="ConsoleInterface" type="VBoxContainer" parent="." unique_id=1620366509]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
@@ -18,23 +18,23 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 
-[node name="PanelContainer" type="PanelContainer" parent="ConsoleInterface"]
+[node name="PanelContainer" type="PanelContainer" parent="ConsoleInterface" unique_id=597303145]
 layout_mode = 2
 size_flags_vertical = 3
 
-[node name="RichTextLabel" type="RichTextLabel" parent="ConsoleInterface/PanelContainer"]
+[node name="RichTextLabel" type="RichTextLabel" parent="ConsoleInterface/PanelContainer" unique_id=1808113647]
 layout_mode = 2
 size_flags_vertical = 3
 focus_mode = 2
 scroll_following = true
 selection_enabled = true
 
-[node name="HSeparator" type="HSeparator" parent="ConsoleInterface"]
+[node name="HSeparator" type="HSeparator" parent="ConsoleInterface" unique_id=328722642]
 layout_mode = 2
 
-[node name="PanelContainer2" type="PanelContainer" parent="ConsoleInterface"]
+[node name="PanelContainer2" type="PanelContainer" parent="ConsoleInterface" unique_id=1111561036]
 layout_mode = 2
 
-[node name="TextEdit" type="LineEdit" parent="ConsoleInterface/PanelContainer2"]
+[node name="TextEdit" type="LineEdit" parent="ConsoleInterface/PanelContainer2" unique_id=2118033494]
 layout_mode = 2
 placeholder_text = "VM console (\"?\" for how to use)"

@@ -1,11 +1,11 @@
-[gd_scene load_steps=2 format=3 uid="uid://g0eyndavpqug"]
+[gd_scene format=3 uid="uid://g0eyndavpqug"]
 
-[ext_resource type="Script" path="res://node.gd" id="1_h2sua"]
+[ext_resource type="Script" uid="uid://r53q3axiqlv5" path="res://node.gd" id="1_h2sua"]
 
-[node name="Node" type="Node"]
+[node name="Node" type="Node" unique_id=332734396]
 script = ExtResource("1_h2sua")
 
-[node name="RblxVM" type="RblxVM" parent="."]
+[node name="RblxVM" type="RblxVM" parent="." unique_id=827166294]
 startup_flags = {
 "CreatorId": 0,
 "CreatorType": 0,

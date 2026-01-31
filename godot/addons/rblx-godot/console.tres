@@ -1,4 +1,4 @@
-[gd_resource type="Theme" load_steps=20 format=3 uid="uid://d2flu12ih8rkt"]
+[gd_resource type="Theme" format=3 uid="uid://d2flu12ih8rkt"]
 
 [ext_resource type="FontFile" uid="uid://c31balv0cc78x" path="res://addons/rblx-godot/ttf/Courier Prime Code.ttf" id="1_a1kjp"]
 [ext_resource type="FontVariation" uid="uid://ce271ytoq4uux" path="res://addons/rblx-godot/ttf/Courier Prime Code Bold.tres" id="2_lnhgh"]
